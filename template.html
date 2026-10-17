@@ -65,6 +65,11 @@
   .pop label:hover { background:#f2f7ff; }
   .pop .ttl { font-weight:600; margin-bottom:6px; }
   .err { color:#c00; }
+  #method { padding:3px 6px; border:1px solid #bbb; border-radius:4px; background:#fafafa; font:inherit; }
+  .explain { max-width:760px; margin:20px 0 8px; font-size:13px; color:#444; line-height:1.6; }
+  .explain h2 { font-size:15px; margin:0 0 6px; } .explain h3 { font-size:14px; margin:12px 0 4px; }
+  .explain dt { font-weight:600; margin-top:6px; } .explain dd { margin:0 0 0 1em; }
+  .explain ul { margin:0; padding-left:1.4em; } .explain li { margin-bottom:4px; }
   tfoot td { position:sticky; bottom:0; white-space:normal; background:#f7f7f7; font-size:10px; color:#888; padding:4px 10px; }
   tfoot .gen { float:right; color:#888; margin-left:24px; }
   tfoot td > div { width:0; min-width:100%; }   /* 不讓頁尾文字撐寬欄位 */
@@ -84,6 +89,7 @@
 <div class="bar">
   <label class="span">年度範圍：近 <b id="spanN"></b> 年 <span id="spanR"></span>
     <input id="span" type="range" min="1" step="1"></label>
+  <select id="method" title="報酬率算法（說明見頁面最下方）"><option value="tr">股息再投入</option><option value="simple">股息不再投入</option></select>
   <input id="q" type="search" placeholder="搜尋代碼 / 名稱">
   <button id="onlyPicked">只看勾選</button>
   <button id="hidePicked">隱藏勾選</button>
@@ -106,6 +112,26 @@
 </div>
 </div>
 <div class="wrap"><table id="t"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
+<section class="explain">
+  <h2>兩種報酬率算法的差異</h2>
+  <dl>
+    <dt>股息再投入（預設）</dt>
+    <dd>用 Yahoo 的「還原收盤價」計算：每次除息，股息在除息日就以當天價格買回同一檔，之後跟著漲跌。等同「報酬指數」的總報酬，也是基金績效、ETF 公開說明書的常見算法。<br>
+      公式：該年最後還原收盤價 ÷ 前一年最後還原收盤價 − 1</dd>
+    <dt>股息不再投入</dt>
+    <dd>股息領了就放著當現金，不再買回。<br>
+      公式：（該年最後收盤價 ＋ 當年除息合計 − 前一年最後收盤價）÷ 前一年最後收盤價；今年則用最新收盤價。</dd>
+  </dl>
+  <h3>為什麼兩者數字不同</h3>
+  <ul>
+    <li><b>股息的複利</b>：再投入的股息在除息後會跟著漲跌。除息後到年底若上漲，「再投入」較高；若下跌，「不再投入」較高。配息越多、越頻繁（月配、季配），差距越大；不配息的標的兩者相同。<br>
+      例：年初 100 元，年中除息 5 元（除息後 105 元），年底 120 元。不再投入：(120＋5−100)÷100 ＝ 25.0%；再投入：5 元以 105 元買回，持股變 1＋5÷105 倍，年底市值 120×1.0476 ＝ 125.7，報酬 25.7%。</li>
+    <li><b>股息歸屬年度</b>：兩種算法都以<b>除息日</b>歸年，不是發放日。12 月除息、隔年 1 月才入帳的股息算在除息那一年。</li>
+    <li><b>股票分割</b>：兩種算法都已把分割（如 0050 於 2025 年 6 月 1 拆 4）換算成相同基準，分割前後的價格與配息可直接比較。</li>
+    <li><b>上市當年</b>（斜體）：從上市第一天收盤價起算，不是從前一年底。</li>
+    <li><b>指數</b>：台灣報酬指數本身已含息再投入，加權指數不含息；兩者不受此切換影響。</li>
+  </ul>
+</section>
 
 <script src="watchlist.js"></script>
 <script>
@@ -126,7 +152,8 @@ const cols = [
     const x = r.returns && r.returns[y];
     if (!x) return {sort:null, text:'(空白)'};
     if (x.note) return {sort:null, text:x.note};
-    return {sort:x.v, text:fmtPct(x.v), partial:x.partial};
+    const v = S.method === 'simple' && x.s != null ? x.s : x.v;   // 指數等沒有 s 的沿用 v
+    return {sort:v, text:fmtPct(v), partial:x.partial};
   }})),
 ];
 const colByKey = Object.fromEntries(cols.map(c => [c.k, c]));
@@ -139,6 +166,8 @@ S.filters = S.filters || {};      // k -> {vals:[允許的文字] | null, min, m
 S.picked = S.picked || [];        // 勾選的代碼
 S.mode = S.mode || '';            // '' | 'only' | 'hide'
 S.hiddenCols = S.hiddenCols || [];
+S.method = S.method || 'tr';        // 'tr' 股息再投入 | 'simple' 股息不再投入
+const methodName = () => S.method === 'simple' ? '股息不再投入' : '股息再投入';
 const MAX_SPAN = Math.min(10, years.length);
 S.span = Math.min(S.span || 3, MAX_SPAN);   // 報酬率年度範圍，預設近三年
 if (S.collapsed == null) S.collapsed = innerWidth < 600;   // 查詢選項區收合，手機預設收合
@@ -186,7 +215,7 @@ function head() {
   const allOn = DATA.rows.length && DATA.rows.every(r => pk.has(r.代碼));
   document.querySelector('#t thead').innerHTML =
     `<tr class="group"><th style="border:none"></th><th colspan="${vc.length - nYear}" style="border:none"></th>` +
-    (nYear ? `<th colspan="${nYear}">各年度含息報酬率</th>` : '') + `</tr>` +
+    (nYear ? `<th colspan="${nYear}">各年度含息報酬率（${methodName()}）</th>` : '') + `</tr>` +
     `<tr class="cols"><th><input type="checkbox" id="pickAll" title="全選/全不選" ${allOn ? 'checked' : ''}></th>${th}</tr>`;
 }
 
@@ -354,7 +383,7 @@ async function exportImage() {
   const W = tr0.width - skip, ox = tr0.left + skip;
   const font = cs => `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
   const bodyFont = font(getComputedStyle(document.body));
-  const title = `各年度含息報酬率（近 ${S.span} 年）`;
+  const title = `各年度含息報酬率（近 ${S.span} 年，${methodName()}）`;
   const sub = document.getElementById('info').textContent.split(' · ')[0] + `　網頁產生於 ${DATA.updated}（台北時間）`;
   const foot = document.querySelector('#t tfoot td').textContent.replace(/網頁產生於.*$/, '').trim();
   const src = /^https?:/.test(location.href) ? location.href.split('#')[0] : '';
@@ -408,8 +437,8 @@ async function exportImage() {
 }
 document.getElementById('expBtn').onclick = () => exportImage().catch(e => alert('匯出失敗：' + e.message));
 document.getElementById('reset').onclick = () => {
-  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3});
-  spanEl.value = 3;
+  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, method:'tr'});
+  spanEl.value = 3; methodEl.value = 'tr';
   document.getElementById('q').value = ''; render();
 };
 // ---- 個人追蹤清單（watchlist.js，與「我的追蹤清單」頁同步）----
@@ -455,7 +484,8 @@ async function analyzeJS(it) {
   // 已結束年度的報酬率記在瀏覽器（etf-hist），有缺的年度才抓長期資料
   const key = it.代碼 + (it.Yahoo代號 ? '|' + it.Yahoo代號 : '');
   const cached = histGet()[key] || {}, done = cached.returns || {};
-  const missing = years.slice(1).filter(y => !done[y]);
+  // 舊記錄沒有「股息不再投入」報酬率（s）的年度也要重算
+  const missing = years.slice(1).filter(y => !done[y] || (done[y].v != null && done[y].s == null));
   const recent = Math.floor(Date.now() / 1000) - 400 * 86400;
   const p1 = missing.length ? Math.min(Math.floor(new Date(Math.min(...missing) - 1, 11, 1) / 1000), recent) : recent;
   const p2 = Math.floor(Date.now() / 1000) + 86400;
@@ -475,10 +505,17 @@ async function analyzeJS(it) {
     pts.push({y:d.getUTCFullYear(), m:d.getUTCMonth() + 1, day:d.toISOString().slice(0, 10), c:q[i], a:a[i]});
   });
   if (!pts.length) return {...out, error:'查無資料'};
-  // Yahoo 漏掉的分割調整
+  const divs = Object.values((data.events || {}).dividends || {}).map(ev => {
+    const d = new Date((ev.date + off) * 1000);
+    return {y:d.getUTCFullYear(), day:d.toISOString().slice(0, 10), v:ev.amount};
+  });
+  // Yahoo 漏掉的分割調整（收盤價與當時的配息金額同樣調整）
+  const splitN = r => { const n = r > 1 ? Math.round(r) : 1 / Math.round(1 / r); return (r > 1.6 || r < 0.6) && Math.abs(r / n - 1) < 0.12 ? n : 0; };
   for (let i = pts.length - 1; i > 0; i--) {
-    const r = pts[i - 1].a / pts[i].a, n = r > 1 ? Math.round(r) : 1 / Math.round(1 / r);
-    if ((r > 1.6 || r < 0.6) && Math.abs(r / n - 1) < 0.12) for (let j = 0; j < i; j++) pts[j].a /= n;
+    let n = splitN(pts[i - 1].a / pts[i].a);
+    if (n) for (let j = 0; j < i; j++) pts[j].a /= n;
+    n = splitN(pts[i - 1].c / pts[i].c);
+    if (n) { for (let j = 0; j < i; j++) pts[j].c /= n; divs.forEach(dv => { if (dv.day < pts[i].day) dv.v /= n; }); }
   }
   // Yahoo 有時缺最後一根日K（例如除息日當天）：用最新成交價補上，期間除息一併計入還原價
   const rmt = meta.regularMarketTime, lastPx = meta.regularMarketPrice;
@@ -511,6 +548,9 @@ async function analyzeJS(it) {
   }
   out.listed = listed ? listed.day : null;
   const lastAdj = y => { let v = null; for (const p of pts) if (p.y === y) v = p.a; return v; };
+  const lastClose = y => { let v = null; for (const p of pts) if (p.y === y) v = p.c; return v; };
+  const lastDay = pts[pts.length - 1].day;
+  const divSum = y => divs.reduce((s, dv) => dv.y === y && dv.day > first.day && dv.day <= lastDay ? s + dv.v : s, 0);
   const fresh = {};
   out.returns = fresh;
   for (const y of [years[0], ...missing]) {
@@ -521,6 +561,7 @@ async function analyzeJS(it) {
       continue;
     }
     out.returns[y] = prv == null ? {v:(end / first.a - 1) * 100, partial:true} : {v:(end / prv - 1) * 100};
+    out.returns[y].s = ((lastClose(y) + divSum(y)) / (prv == null ? first.c : lastClose(y - 1)) - 1) * 100;
   }
   out.returns = {};
   for (const y of years) { const v = fresh[y] || done[y]; if (v) out.returns[y] = v; }
@@ -612,6 +653,9 @@ document.querySelector('#t tbody').addEventListener('click', e => {
 const spanEl = document.getElementById('span');
 spanEl.max = MAX_SPAN; spanEl.value = S.span;
 spanEl.addEventListener('input', () => { S.span = +spanEl.value; render(); });
+const methodEl = document.getElementById('method');
+methodEl.value = S.method;
+methodEl.addEventListener('change', () => { S.method = methodEl.value; render(); });
 document.addEventListener('click', closePop);
 document.getElementById('q').addEventListener('input', body);
 loadCustom();
