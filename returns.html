@@ -21,6 +21,9 @@
   .span #spanR { color:#888; }
   .span input { width:160px; accent-color:#2c7a3f; }
   .wrap { overflow:auto; max-height:calc(100vh - 150px); }
+  body.collapsed #opts { display:none; }
+  body.collapsed .wrap { max-height:calc(100vh - 60px); }
+  #optBtn { margin-left:12px; padding:1px 8px; border:1px solid #bbb; background:#fafafa; border-radius:4px; cursor:pointer; font:inherit; font-size:12px; font-weight:normal; vertical-align:middle; }
   .addbar input, .addbar select { padding:4px 6px; border:1px solid var(--bd); border-radius:4px; font:inherit; }
   .addbar #addBtn { background:#2c7a3f; color:#fff; border-color:#2c7a3f; }
   .addbar :disabled { opacity:.5; cursor:not-allowed; }
@@ -33,10 +36,11 @@
   thead th { background:var(--hd); position:sticky; top:0; z-index:2; font-weight:600; }
   thead tr.group th { background:#fff; top:0; color:#555; font-weight:normal; }
   thead tr.cols th { top:27px; }
-  th .h { display:flex; align-items:center; gap:4px; justify-content:center; }
+  th .h { display:flex; flex-direction:column; align-items:center; gap:1px; }
+  th .tools { display:flex; align-items:center; gap:3px; line-height:1; }
   th .lbl { cursor:pointer; }
-  th .s { color:#999; font-size:11px; }
-  th .f { padding:0 4px; border:1px solid #2c7a3f; background:#2c7a3f; color:#fff; border-radius:3px; font-size:11px; cursor:pointer; line-height:16px; }
+  th .s { color:#999; font-size:10px; cursor:pointer; }
+  th .f { padding:0 3px; border:1px solid #2c7a3f; background:#2c7a3f; color:#fff; border-radius:3px; font-size:9px; cursor:pointer; line-height:11px; }
   th .f.on { background:#f0b400; border-color:#f0b400; }
   td.c { text-align:center; } td.r { text-align:right; font-variant-numeric:tabular-nums; }
   tbody tr:nth-child(even) td { background:#f5f5f5; }
@@ -60,13 +64,22 @@
   .pop label:hover { background:#f2f7ff; }
   .pop .ttl { font-weight:600; margin-bottom:6px; }
   .err { color:#c00; }
-  tfoot td { position:sticky; bottom:0; background:#f7f7f7; font-size:13px; color:#444; padding:6px 10px; }
+  tfoot td { position:sticky; bottom:0; white-space:normal; background:#f7f7f7; font-size:13px; color:#444; padding:6px 10px; }
   tfoot .gen { float:right; color:#888; margin-left:24px; }
+  tfoot td > div { width:0; min-width:100%; }   /* 不讓頁尾文字撐寬欄位 */
+  @media (max-width:600px) {
+    body { padding:8px; font-size:13px; }
+    h1 { font-size:16px; } h1 .sub { margin-left:8px; } #optBtn { margin-left:6px; }
+    th, td { padding:2px 4px; }
+    .wrap { max-height:calc(100vh - 110px); } body.collapsed .wrap { max-height:calc(100vh - 50px); }
+  }
 </style>
 </head>
 <body>
 <h1><a href="./" class="home" title="回首頁">投資工具</a> › 各年度含息報酬率
-  <a href="watchlist.html" class="home sub">我的追蹤清單</a></h1>
+  <a href="watchlist.html" class="home sub">我的追蹤清單</a>
+  <button id="optBtn"></button></h1>
+<div id="opts">
 <div class="bar">
   <label class="span">年度範圍：近 <b id="spanN"></b> 年 <span id="spanR"></span>
     <input id="span" type="range" min="1" step="1"></label>
@@ -88,6 +101,7 @@
   <button id="restore" style="display:none"></button>
   <a href="watchlist.html" class="manage">管理我的追蹤清單 →</a>
   <span id="amsg"></span>
+</div>
 </div>
 <div class="wrap"><table id="t"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
 
@@ -125,6 +139,7 @@ S.mode = S.mode || '';            // '' | 'only' | 'hide'
 S.hiddenCols = S.hiddenCols || [];
 const MAX_SPAN = Math.min(10, years.length);
 S.span = Math.min(S.span || 3, MAX_SPAN);   // 報酬率年度範圍，預設近三年
+if (S.collapsed == null) S.collapsed = innerWidth < 600;   // 查詢選項區收合，手機預設收合
 function load() { try { return JSON.parse(localStorage.getItem('etf-state')); } catch (e) { return null; } }
 function save() { try { localStorage.setItem('etf-state', JSON.stringify(S)); } catch (e) {} }
 
@@ -161,8 +176,9 @@ function head() {
   const nYear = vc.filter(c => c.year).length;
   const th = vc.map(c => {
     const s = S.sortKey === c.k ? (S.sortDir < 0 ? '▼' : '▲') : '⇅';
-    return `<th><div class="h"><span class="lbl" data-sort="${c.k}">${c.label}</span>` +
-      `<span class="s">${s}</span><button class="f${S.filters[c.k] ? ' on' : ''}" data-f="${c.k}">▾</button></div></th>`;
+    return `<th><div class="h"><span class="tools"><span class="s" data-sort="${c.k}">${s}</span>` +
+      `<button class="f${S.filters[c.k] ? ' on' : ''}" data-f="${c.k}" title="篩選">▾</button></span>` +
+      `<span class="lbl" data-sort="${c.k}">${c.label}</span></div></th>`;
   }).join('');
   const pk = picked();
   const allOn = DATA.rows.length && DATA.rows.every(r => pk.has(r.代碼));
@@ -201,8 +217,8 @@ function body() {
   document.getElementById('info').textContent =
     `顯示 ${rows.length} / ${DATA.rows.length} 檔 · 勾選 ${pk.size} · 今年為年初至今，斜體＝上市當年`;
   document.querySelector('#t tfoot').innerHTML =
-    `<tr><td colspan="${vc.length + 1}"><b>資料時間</b>　${marketText(rows)}` +
-    `<span class="gen">網頁產生於 ${DATA.updated}（台北時間）</span></td></tr>`;
+    `<tr><td colspan="${vc.length + 1}"><div><b>資料時間</b>　${marketText(rows)}` +
+    `<span class="gen">網頁產生於 ${DATA.updated}（台北時間）</span></div></td></tr>`;
   document.getElementById('onlyPicked').classList.toggle('on', S.mode === 'only');
   document.getElementById('hidePicked').classList.toggle('on', S.mode === 'hide');
   save();
@@ -318,6 +334,13 @@ document.querySelector('#t tbody').addEventListener('change', e => {
 document.getElementById('onlyPicked').onclick = () => { S.mode = S.mode === 'only' ? '' : 'only'; render(); };
 document.getElementById('hidePicked').onclick = () => { S.mode = S.mode === 'hide' ? '' : 'hide'; render(); };
 document.getElementById('clearPicked').onclick = () => { S.picked = []; if (S.mode) S.mode = ''; render(); };
+const optBtn = document.getElementById('optBtn');
+function applyCollapsed() {
+  document.body.classList.toggle('collapsed', S.collapsed);
+  optBtn.textContent = S.collapsed ? '顯示查詢選項 ▾' : '隱藏查詢選項 ▴';
+}
+optBtn.onclick = () => { S.collapsed = !S.collapsed; applyCollapsed(); save(); };
+applyCollapsed();
 document.getElementById('colBtn').onclick = e => { e.stopPropagation(); openCols(e.currentTarget); };
 document.getElementById('reset').onclick = () => {
   Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3});
