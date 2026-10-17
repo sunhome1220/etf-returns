@@ -103,8 +103,10 @@ def hist_key(row):
     return row["代碼"] + ("|" + row["Yahoo代號"] if row.get("Yahoo代號") else "")
 
 
-def year_returns(years, end_of, listed, first_val):
-    """end_of(y) → 該年最後一筆（還原）值或 None；listed 為上市日（期間內上市才有）。"""
+def year_returns(years, end_of, listed, first_val, simple=None):
+    """end_of(y) → 該年最後一筆（還原）值或 None；listed 為上市日（期間內上市才有）。
+    simple = (close_of, div_of, first_close)：另算股息不再投入的報酬率
+    （年底收盤 + 當年除息合計 − 前一年底收盤）÷ 前一年底收盤，存在 "s"。"""
     rets = {}
     for y in years:
         end, prev = end_of(y), end_of(y - 1)
@@ -118,6 +120,11 @@ def year_returns(years, end_of, listed, first_val):
             rets[str(y)] = {"v": (end / first_val - 1) * 100, "partial": True}
         else:
             rets[str(y)] = {"v": (end / prev - 1) * 100}
+        if simple:
+            close_of, div_of, first_close = simple
+            base = close_of(y - 1) if prev is not None else first_close
+            if base:
+                rets[str(y)]["s"] = ((close_of(y) + div_of(y)) / base - 1) * 100
     return rets
 
 
@@ -129,6 +136,8 @@ def analyze(row, years, hist=None):
     missing = [y for y in years[1:] if str(y) not in done]
     if (row.get("Yahoo代號") or "").upper().startswith("TWSE:"):
         return analyze_twse(row, years, hist, key, cached, missing)
+    # 舊記錄沒有「股息不再投入」報酬率（s）的年度也要重算
+    missing = [y for y in years[1:] if str(y) not in done or ("v" in done[str(y)] and "s" not in done[str(y)])]
 
     # 有缺的年度才抓長期資料；否則只抓近 400 天（今年報酬 + 除息月份）
     recent = int(dt.datetime.now().timestamp()) - 400 * 86400
@@ -157,13 +166,21 @@ def analyze(row, years, hist=None):
     if not pts:
         out["error"] = "查無資料"
         return out
+    divs = sorted((dt.datetime.utcfromtimestamp(ev["date"] + off).date(), ev["amount"])
+                  for ev in (data.get("events") or {}).get("dividends", {}).values())
 
     # Yahoo 有時漏掉分割調整：台股單日漲跌幅有限制，單日變動 >40% 視為分割/合併
-    for i in range(len(pts) - 1, 0, -1):
-        r = pts[i - 1][2] / pts[i][2]
+    def split_n(r):
         n = round(r) if r > 1 else 1 / round(1 / r)
-        if (r > 1.6 or r < 0.6) and abs(r / n - 1) < 0.12:
+        return n if (r > 1.6 or r < 0.6) and abs(r / n - 1) < 0.12 else None
+    for i in range(len(pts) - 1, 0, -1):
+        n = split_n(pts[i - 1][2] / pts[i][2])
+        if n:
             pts[:i] = [(d, c, a / n) for d, c, a in pts[:i]]
+        n = split_n(pts[i - 1][1] / pts[i][1])  # 收盤價與當時的配息金額同樣調整
+        if n:
+            pts[:i] = [(d, c / n, a) for d, c, a in pts[:i]]
+            divs = [(d, v / n if d < pts[i][0] else v) for d, v in divs]
 
     # Yahoo 有時缺最後一根日K（例如除息日當天）：用最新成交價補上，期間除息一併計入還原價
     meta = data["meta"]
@@ -198,7 +215,14 @@ def analyze(row, years, hist=None):
         v = [a for d, _, a in pts if d.year == year]
         return v[-1] if v else None
 
-    new = year_returns([years[0]] + missing, last_adj, listed, pts[0][2])
+    def last_close(year):
+        v = [c for d, c, _ in pts if d.year == year]
+        return v[-1] if v else None
+
+    def div_sum(year):  # 當年除息合計（以除息日歸年，資料起點後才算）
+        return sum(v for d, v in divs if d.year == year and pts[0][0] < d <= pts[-1][0])
+
+    new = year_returns([years[0]] + missing, last_adj, listed, pts[0][2], (last_close, div_sum, pts[0][1]))
     out["returns"] = {str(y): (new.get(str(y)) or done.get(str(y))) for y in years
                       if new.get(str(y)) or done.get(str(y))}
     # 只記錄已結束、且資料已跨到下一年的年度（避免年底最後一根日K尚未到位）
