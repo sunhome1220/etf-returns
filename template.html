@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>各年度含息報酬率</title>
+<style>
+  :root { --bd:#d9d9d9; --hd:#f3f3f3; --active:#efe3ef; --up:#e0218a; --low:#1f4fbf; --down:#2e8b3d; }
+  body { margin:0; padding:16px; font:14px/1.4 "Microsoft JhengHei","PingFang TC",sans-serif; background:#fff; color:#222; }
+  h1 { font-size:18px; margin:0 0 8px; }
+  .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; font-size:13px; }
+  .bar input[type=search] { padding:4px 8px; border:1px solid var(--bd); border-radius:4px; width:160px; }
+  .bar button, .pop button { padding:3px 10px; border:1px solid #bbb; background:#fafafa; border-radius:4px; cursor:pointer; font:inherit; }
+  .bar button.on { background:#2c7a3f; color:#fff; border-color:#2c7a3f; }
+  #info { color:#666; }
+  .span { display:flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--bd); border-radius:4px; background:#fafafa; }
+  .span #spanR { color:#888; }
+  .span input { width:160px; accent-color:#2c7a3f; }
+  .wrap { overflow:auto; max-height:calc(100vh - 150px); }
+  .addbar input, .addbar select { padding:4px 6px; border:1px solid var(--bd); border-radius:4px; font:inherit; }
+  .addbar #addBtn { background:#2c7a3f; color:#fff; border-color:#2c7a3f; }
+  .addbar :disabled { opacity:.5; cursor:not-allowed; }
+  #amsg.ok { color:#2c7a3f; } #amsg.bad { color:#c00; } #amsg { color:#888; }
+  .rm { border:none; background:none; color:#bbb; cursor:pointer; padding:0 2px; font-size:12px; }
+  .rm:hover { color:#c00; }
+  .tag { margin-left:6px; font-size:11px; color:#2c7a3f; border:1px solid #2c7a3f; border-radius:3px; padding:0 3px; }
+  table { border-collapse:collapse; white-space:nowrap; }
+  th, td { border:1px solid var(--bd); padding:3px 8px; }
+  thead th { background:var(--hd); position:sticky; top:0; z-index:2; font-weight:600; }
+  thead tr.group th { background:#fff; top:0; color:#555; font-weight:normal; }
+  thead tr.cols th { top:27px; }
+  th .h { display:flex; align-items:center; gap:4px; justify-content:center; }
+  th .lbl { cursor:pointer; }
+  th .s { color:#999; font-size:11px; }
+  th .f { padding:0 4px; border:1px solid #2c7a3f; background:#2c7a3f; color:#fff; border-radius:3px; font-size:11px; cursor:pointer; line-height:16px; }
+  th .f.on { background:#f0b400; border-color:#f0b400; }
+  td.c { text-align:center; } td.r { text-align:right; font-variant-numeric:tabular-nums; }
+  tr.主動 td { background:var(--active); } tr.個股-穩 td { background:#e3f0e3; }
+  tr.picked td { background:#fff3c4 !important; }
+  tbody tr:hover td { background:#fff7d6; }
+  .note { color:#888; font-style:italic; font-size:12px; }
+  .partial { font-style:italic; }
+  .pos { color:var(--up); } .neg { color:var(--down); } .lowpos { color:var(--low); }
+  .t-個股-科,.t-主動,.t-個股-穩 { color:#8e24aa; font-weight:600; } .t-槓桿,.t-指數 { color:#e0218a; }
+  .t-高息 { color:#2e8b3d; } .t-市值 { color:#c0392b; } .t-動能 { color:#6a1b9a; }
+  .r-美國 { color:#1f4fbf; font-weight:600; } .r-陸港 { color:#c0392b; font-weight:600; }
+  .div { color:#1f4fbf; }
+  .pop { position:absolute; background:#fff; border:1px solid #aaa; box-shadow:0 4px 12px rgba(0,0,0,.15); padding:8px; z-index:20; width:220px; font-size:13px; }
+  .pop .row { display:flex; gap:6px; margin-bottom:6px; }
+  .pop .row > * { flex:1; }
+  .pop input[type=search], .pop input[type=number] { width:100%; box-sizing:border-box; padding:3px 6px; border:1px solid var(--bd); border-radius:4px; }
+  .pop .list { max-height:260px; overflow:auto; border:1px solid #eee; padding:2px 0; margin-bottom:6px; }
+  .pop label { display:flex; gap:6px; padding:2px 6px; cursor:pointer; }
+  .pop label:hover { background:#f2f7ff; }
+  .pop .ttl { font-weight:600; margin-bottom:6px; }
+  .err { color:#c00; }
+  tfoot td { position:sticky; bottom:0; background:#f7f7f7; font-size:13px; color:#444; padding:6px 10px; }
+  tfoot .gen { float:right; color:#888; margin-left:24px; }
+</style>
+</head>
+<body>
+<h1>各年度含息報酬率</h1>
+<div class="bar">
+  <label class="span">年度範圍：近 <b id="spanN"></b> 年 <span id="spanR"></span>
+    <input id="span" type="range" min="1" step="1"></label>
+  <input id="q" type="search" placeholder="搜尋代碼 / 名稱">
+  <button id="onlyPicked">只看勾選</button>
+  <button id="hidePicked">隱藏勾選</button>
+  <button id="clearPicked">清除勾選</button>
+  <button id="colBtn">欄位</button>
+  <button id="reset">全部重設</button>
+  <span id="info"></span>
+</div>
+<div class="bar addbar">
+  <b>新增代碼</b>
+  <input id="ac" placeholder="如 2330、QQQ、VWRA.L" size="16">
+  <input id="an" placeholder="名稱（選填）" size="12">
+  <select id="ar"><option value="">區（自動）</option><option>台灣</option><option>美國</option><option>陸港</option><option>全球</option></select>
+  <input id="at" list="cats" placeholder="類（預設 自選）" size="10"><datalist id="cats"></datalist>
+  <button id="addBtn">加入</button>
+  <button id="restore" style="display:none"></button>
+  <span id="amsg"></span>
+</div>
+<div class="wrap"><table id="t"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
+
+<script>
+const DATA = /*DATA*/null;
+const years = DATA.years;
+const fmtPct = v => v.toFixed(Math.abs(v) >= 100 ? 2 : 1) + '%';
+
+// 每個欄位：sort = 排序值，text = 顯示/篩選文字
+const cols = [
+  {k:'區', label:'區', get:r => ({sort:r.區, text:r.區})},
+  {k:'類', label:'類', get:r => ({sort:r.類, text:r.類})},
+  {k:'除息', label:'除息', get:r => ({sort:r.除息 || '', text:r.除息 || '(空白)'})},
+  {k:'代碼', label:'代碼', get:r => ({sort:r.代碼, text:r.代碼})},
+  {k:'名稱', label:'名稱', get:r => ({sort:r.名稱, text:r.名稱})},
+  {k:'price', label:'現價', num:true, get:r => r.error ? {sort:null, text:'(無資料)'} : {sort:r.price, text:String(+r.price.toFixed(2))}},
+  {k:'chg', label:'最後交易<br>日漲跌', num:true, get:r => r.chg == null ? {sort:null, text:'(無資料)'} : {sort:r.chg, text:r.chg.toFixed(2) + '%'}},
+  ...years.map(y => ({k:'y' + y, year:y, label:String(y), num:true, get:r => {
+    const x = r.returns && r.returns[y];
+    if (!x) return {sort:null, text:'(空白)'};
+    if (x.note) return {sort:null, text:x.note};
+    return {sort:x.v, text:fmtPct(x.v), partial:x.partial};
+  }})),
+];
+const colByKey = Object.fromEntries(cols.map(c => [c.k, c]));
+
+// 狀態（存在瀏覽器，每天重新產生網頁後仍保留）
+const S = load() || {};
+S.sortKey = S.sortKey || 'y' + years[0];
+S.sortDir = S.sortDir || -1;
+S.filters = S.filters || {};      // k -> {vals:[允許的文字] | null, min, max}
+S.picked = S.picked || [];        // 勾選的代碼
+S.mode = S.mode || '';            // '' | 'only' | 'hide'
+S.hiddenCols = S.hiddenCols || [];
+const MAX_SPAN = Math.min(10, years.length);
+S.span = Math.min(S.span || 3, MAX_SPAN);   // 報酬率年度範圍，預設近三年
+function load() { try { return JSON.parse(localStorage.getItem('etf-state')); } catch (e) { return null; } }
+function save() { try { localStorage.setItem('etf-state', JSON.stringify(S)); } catch (e) {} }
+
+const inSpan = c => !c.year || c.year > years[0] - S.span;
+const visCols = () => cols.filter(c => inSpan(c) && !S.hiddenCols.includes(c.k));
+const picked = () => new Set(S.picked);
+
+function passFilter(r, c, f) {
+  const v = c.get(r);
+  if (f.vals && !f.vals.includes(v.text)) return false;
+  if (f.min != null && (v.sort == null || v.sort < f.min)) return false;
+  if (f.max != null && (v.sort == null || v.sort > f.max)) return false;
+  return true;
+}
+function filtered(exceptKey) {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const pk = picked();
+  return DATA.rows.filter(r =>
+    Object.entries(S.filters).every(([k, f]) => k === exceptKey || !colByKey[k] || !inSpan(colByKey[k]) || passFilter(r, colByKey[k], f)) &&
+    (!q || (r.代碼 + r.名稱).toLowerCase().includes(q)) &&
+    (S.mode !== 'only' || pk.has(r.代碼)) &&
+    (S.mode !== 'hide' || !pk.has(r.代碼)));
+}
+function cmp(c, dir) {
+  return (a, b) => {
+    const x = c.get(a).sort, y = c.get(b).sort;
+    if (x == null || x === '') return 1; if (y == null || y === '') return -1;
+    return (c.num ? x - y : String(x).localeCompare(String(y), 'zh-Hant')) * dir;
+  };
+}
+
+function head() {
+  const vc = visCols();
+  const nYear = vc.filter(c => c.year).length;
+  const th = vc.map(c => {
+    const s = S.sortKey === c.k ? (S.sortDir < 0 ? '▼' : '▲') : '⇅';
+    return `<th><div class="h"><span class="lbl" data-sort="${c.k}">${c.label}</span>` +
+      `<span class="s">${s}</span><button class="f${S.filters[c.k] ? ' on' : ''}" data-f="${c.k}">▾</button></div></th>`;
+  }).join('');
+  const pk = picked();
+  const allOn = DATA.rows.length && DATA.rows.every(r => pk.has(r.代碼));
+  document.querySelector('#t thead').innerHTML =
+    `<tr class="group"><th style="border:none"></th><th colspan="${vc.length - nYear}" style="border:none"></th>` +
+    (nYear ? `<th colspan="${nYear}">各年度含息報酬率</th>` : '') + `</tr>` +
+    `<tr class="cols"><th><input type="checkbox" id="pickAll" title="全選/全不選" ${allOn ? 'checked' : ''}></th>${th}</tr>`;
+}
+
+function cell(c, r) {
+  const v = c.get(r);
+  switch (c.k) {
+    case '區': return `<td class="c r-${r.區}">${r.區}</td>`;
+    case '類': return `<td class="c t-${r.類}">${r.類}</td>`;
+    case '除息': return `<td class="c div">${r.除息 || ''}</td>`;
+    case '代碼': return `<td>${esc(v.text)}</td>`;
+    case '名稱': return `<td>${esc(v.text)}${r.custom ? '<span class="tag">自訂</span>' : ''}</td>`;
+    case 'price': return `<td class="r">${r.error ? '' : v.text}</td>`;
+    case 'chg': return `<td class="r ${r.chg < 0 ? 'neg' : 'pos'}">${r.chg == null ? '' : v.text}</td>`;
+  }
+  if (v.sort == null) return `<td class="r note">${v.text === '(空白)' ? '' : v.text}</td>`;
+  const cl = v.sort < 0 ? 'neg' : v.sort < 10 ? 'lowpos' : 'pos';
+  return `<td class="r ${cl}${v.partial ? ' partial' : ''}"${v.partial ? ` title="${r.listed} 上市起算"` : ''}>${v.text}</td>`;
+}
+
+function body() {
+  const sc = colByKey[S.sortKey] && inSpan(colByKey[S.sortKey]) ? colByKey[S.sortKey] : colByKey['y' + years[0]];
+  const rows = filtered().sort(cmp(sc, S.sortDir));
+  document.getElementById('spanN').textContent = S.span;
+  document.getElementById('spanR').textContent = S.span > 1 ? `(${years[0] - S.span + 1}–${years[0]})` : `(${years[0]})`;
+  const pk = picked(), vc = visCols();
+  document.querySelector('#t tbody').innerHTML = rows.map(r =>
+    `<tr class="${r.類}${r.custom ? ' custom' : ''}${pk.has(r.代碼) ? ' picked' : ''}"><td class="c"><input type="checkbox" data-pick="${r.代碼}" ${pk.has(r.代碼) ? 'checked' : ''}>` +
+    `<button class="rm" data-rm="${r.代碼}" title="從我的清單移除">✕</button></td>` +
+    vc.map(c => cell(c, r)).join('') + `</tr>`).join('');
+  document.getElementById('info').textContent =
+    `顯示 ${rows.length} / ${DATA.rows.length} 檔 · 勾選 ${pk.size} · 今年為年初至今，斜體＝上市當年`;
+  document.querySelector('#t tfoot').innerHTML =
+    `<tr><td colspan="${vc.length + 1}"><b>資料時間</b>　${marketText(rows)}` +
+    `<span class="gen">網頁產生於 ${DATA.updated}（台北時間）</span></td></tr>`;
+  document.getElementById('onlyPicked').classList.toggle('on', S.mode === 'only');
+  document.getElementById('hidePicked').classList.toggle('on', S.mode === 'hide');
+  save();
+}
+const render = () => { head(); body(); };
+
+// 只列出目前表格中有出現的市場
+function marketText(rows) {
+  const m = DATA.markets || {}, order = DATA.marketOrder || [];
+  const present = new Set(rows.map(r => r.mkt).filter(Boolean));
+  const names = order.concat(Object.keys(m).filter(k => !order.includes(k)));
+  return names.filter(k => present.has(k) && m[k]).map(k => m[k].text).join('　｜　') || '—';
+}
+
+function popAt(btn, html) {
+  closePop();
+  const pop = document.createElement('div');
+  pop.className = 'pop';
+  pop.innerHTML = html;
+  document.body.appendChild(pop);
+  const rc = btn.getBoundingClientRect();
+  pop.style.left = Math.max(8, Math.min(rc.left + scrollX, scrollX + innerWidth - pop.offsetWidth - 8)) + 'px';
+  pop.style.top = (rc.bottom + scrollY + 4) + 'px';
+  pop.addEventListener('click', e => e.stopPropagation());
+  return pop;
+}
+function closePop() { document.querySelectorAll('.pop').forEach(p => p.remove()); }
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+function openFilter(k, btn) {
+  const c = colByKey[k];
+  // 選項來自「其他欄位篩選後」的資料，與 Excel 相同
+  const base = filtered(k);
+  const seen = new Map();
+  base.slice().sort(cmp(c, 1)).forEach(r => { const v = c.get(r); if (!seen.has(v.text)) seen.set(v.text, v); });
+  const f = S.filters[k] || {};
+  const allowed = f.vals ? new Set(f.vals) : null;
+  const pop = popAt(btn, `
+    <div class="ttl">${c.label.replace('<br>', '')}</div>
+    <div class="row"><button data-a="asc">${c.num ? '小→大' : 'A→Z'}</button><button data-a="desc">${c.num ? '大→小' : 'Z→A'}</button></div>
+    ${c.num ? `<div class="row"><input type="number" step="any" id="fmin" placeholder="最小" value="${f.min ?? ''}"><input type="number" step="any" id="fmax" placeholder="最大" value="${f.max ?? ''}"></div>` : ''}
+    <div class="row"><input type="search" id="fq" placeholder="搜尋選項"></div>
+    <div class="row"><button data-a="all">全選</button><button data-a="none">全不選</button></div>
+    <div class="list">${[...seen.keys()].map(t =>
+      `<label><input type="checkbox" value="${esc(t)}" ${!allowed || allowed.has(t) ? 'checked' : ''}>${esc(t)}</label>`).join('')}</div>
+    <div class="row"><button data-a="clear">清除此篩選</button><button data-a="ok"><b>確定</b></button></div>`);
+  const boxes = () => [...pop.querySelectorAll('.list input')];
+  pop.querySelector('#fq').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    boxes().forEach(b => b.parentElement.style.display = b.value.toLowerCase().includes(q) ? '' : 'none');
+  });
+  pop.addEventListener('click', e => {
+    const a = e.target.closest('[data-a]')?.dataset.a; if (!a) return;
+    const shown = boxes().filter(b => b.parentElement.style.display !== 'none');
+    if (a === 'all') shown.forEach(b => b.checked = true);
+    if (a === 'none') shown.forEach(b => b.checked = false);
+    if (a === 'asc' || a === 'desc') { S.sortKey = k; S.sortDir = a === 'asc' ? 1 : -1; closePop(); render(); }
+    if (a === 'clear') { delete S.filters[k]; closePop(); render(); }
+    if (a === 'ok') {
+      const nf = {};
+      // 只更新清單中出現的項目；被其他篩選隱藏的項目維持原狀
+      const every = new Set(DATA.rows.map(r => c.get(r).text));
+      const next = new Set(allowed || every);
+      boxes().forEach(b => b.checked ? next.add(b.value) : next.delete(b.value));
+      if (next.size < every.size) nf.vals = [...next];
+      if (c.num) {
+        const mn = pop.querySelector('#fmin').value, mx = pop.querySelector('#fmax').value;
+        if (mn !== '') nf.min = +mn;
+        if (mx !== '') nf.max = +mx;
+      }
+      if (Object.keys(nf).length) S.filters[k] = nf; else delete S.filters[k];
+      closePop(); render();
+    }
+  });
+}
+
+function openCols(btn) {
+  const pop = popAt(btn, `<div class="ttl">顯示欄位</div>
+    <div class="row"><button data-a="all">全選</button><button data-a="none">全不選</button></div>
+    <div class="list">${cols.filter(inSpan).map(c =>
+      `<label><input type="checkbox" value="${c.k}" ${S.hiddenCols.includes(c.k) ? '' : 'checked'}>${c.label.replace('<br>', '')}</label>`).join('')}</div>`);
+  const sync = () => { S.hiddenCols = [...pop.querySelectorAll('.list input')].filter(b => !b.checked).map(b => b.value); render(); };
+  pop.addEventListener('change', sync);
+  pop.addEventListener('click', e => {
+    const a = e.target.dataset.a; if (!a) return;
+    pop.querySelectorAll('.list input').forEach(b => b.checked = a === 'all');
+    sync();
+  });
+}
+
+document.querySelector('#t thead').addEventListener('click', e => {
+  const fb = e.target.closest('[data-f]');
+  if (fb) { e.stopPropagation(); openFilter(fb.dataset.f, fb); return; }
+  const sb = e.target.closest('[data-sort]');
+  if (sb) {
+    const k = sb.dataset.sort;
+    if (S.sortKey === k) S.sortDir = -S.sortDir; else { S.sortKey = k; S.sortDir = colByKey[k].num ? -1 : 1; }
+    render();
+  }
+});
+document.querySelector('#t thead').addEventListener('change', e => {
+  if (e.target.id !== 'pickAll') return;
+  const vis = filtered().map(r => r.代碼), pk = picked();
+  vis.forEach(c => e.target.checked ? pk.add(c) : pk.delete(c));
+  S.picked = [...pk]; render();
+});
+document.querySelector('#t tbody').addEventListener('change', e => {
+  const code = e.target.dataset.pick; if (!code) return;
+  const pk = picked();
+  e.target.checked ? pk.add(code) : pk.delete(code);
+  S.picked = [...pk]; render();
+});
+document.getElementById('onlyPicked').onclick = () => { S.mode = S.mode === 'only' ? '' : 'only'; render(); };
+document.getElementById('hidePicked').onclick = () => { S.mode = S.mode === 'hide' ? '' : 'hide'; render(); };
+document.getElementById('clearPicked').onclick = () => { S.picked = []; if (S.mode) S.mode = ''; render(); };
+document.getElementById('colBtn').onclick = e => { e.stopPropagation(); openCols(e.currentTarget); };
+document.getElementById('reset').onclick = () => {
+  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3});
+  spanEl.value = 3;
+  document.getElementById('q').value = ''; render();
+};
+// ---- 每位使用者自己的清單：新增 / 移除代碼存在各自的瀏覽器 ----
+// PROXY：Cloudflare Worker 網址（瀏覽器無法直接向 Yahoo 抓資料）
+const PROXY = /*PROXY*/'';
+const LS = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
+let custom = LS.get('etf-custom', []);     // [{代碼, 名稱, 區, 類, Yahoo代號}]
+let removed = LS.get('etf-removed', []);   // 從預設清單移除的代碼
+const BASE = DATA.rows;
+const amsg = (t, cls) => { const el = document.getElementById('amsg'); el.textContent = t; el.className = cls || ''; };
+
+const MK = {'Asia/Taipei':['台股','台北'], 'America/New_York':['美股','紐約'], 'Europe/London':['英股','倫敦']};
+const REGION_BY_MARKET = {台股:'台灣', 美股:'美國', 英股:'全球'};
+const pad = n => String(n).padStart(2, '0');
+function fmtTs(ts, off) {
+  const d = new Date((ts + off) * 1000);
+  return `${d.getUTCFullYear()}/${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+function marketTime(meta) {  // 與 build.py market_time 相同：已收盤以收盤時間為準
+  const tz = meta.exchangeTimezoneName || '';
+  const [market, city] = MK[tz] || [meta.fullExchangeName || tz, tz];
+  const off = meta.gmtoffset || 0, rmt = meta.regularMarketTime;
+  const reg = (meta.currentTradingPeriod || {}).regular;
+  const now = Date.now() / 1000;
+  if (!rmt || !reg) return {market, city, ts:rmt, closed:true, off};
+  const open = reg.start <= now && now < reg.end;
+  let ts = rmt;
+  if (!open) {
+    const tod = ((reg.end + off) % 86400 + 86400) % 86400;
+    ts = Math.floor((rmt + off) / 86400) * 86400 + tod - off;
+    if (ts > rmt + 43200) ts = rmt;
+  }
+  return {market, city, ts, closed:!open, off};
+}
+function marketTextOf(m) {
+  let t = `${m.market} ${fmtTs(m.ts, m.off)} ${m.closed ? '收盤' : '盤中'}`;
+  if (m.off !== 28800) t += `（${m.city}時間，台北 ${fmtTs(m.ts, 28800)}）`;
+  return t;
+}
+
+async function getJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) return null;
+  return r.json();
+}
+async function chart(sym, qs) {
+  const j = await getJSON(`${PROXY}/chart/${encodeURIComponent(sym)}?${qs}`);
+  const res = j && j.chart && j.chart.result;
+  return res && res[0] && res[0].timestamp ? res[0] : null;
+}
+function symbolsFor(it) {
+  if (it.Yahoo代號) return [it.Yahoo代號];
+  if (/^\d{4,6}[A-Z]?$/.test(it.代碼)) return [it.代碼 + '.TW', it.代碼 + '.TWO'];
+  return [it.代碼];
+}
+async function twName(code) {
+  const j = await getJSON(`${PROXY}/twname/${encodeURIComponent(code)}`).catch(() => null);
+  const hit = j && (j.msgArray || []).find(x => x.n);
+  return hit ? hit.n : null;
+}
+
+// 與 build.py analyze 相同的計算
+async function analyzeJS(it) {
+  const p1 = Math.floor(new Date(years[years.length - 1] - 1, 11, 1) / 1000);
+  const p2 = Math.floor(Date.now() / 1000) + 86400;
+  let data = null, sym = null;
+  for (const s of symbolsFor(it)) {
+    data = await chart(s, `period1=${p1}&period2=${p2}&interval=1d&events=div%7Csplit`).catch(() => null);
+    if (data) { sym = s; break; }
+  }
+  const out = {...it, custom:true};
+  if (!data) return {...out, error:'查無資料'};
+  const meta = data.meta, off = meta.gmtoffset ?? 28800;
+  const q = data.indicators.quote[0].close, a = data.indicators.adjclose[0].adjclose;
+  const pts = [];
+  data.timestamp.forEach((t, i) => {
+    if (q[i] == null || a[i] == null) return;
+    const d = new Date((t + off) * 1000);
+    pts.push({y:d.getUTCFullYear(), m:d.getUTCMonth() + 1, day:d.toISOString().slice(0, 10), c:q[i], a:a[i]});
+  });
+  if (!pts.length) return {...out, error:'查無資料'};
+  // Yahoo 漏掉的分割調整
+  for (let i = pts.length - 1; i > 0; i--) {
+    const r = pts[i - 1].a / pts[i].a, n = r > 1 ? Math.round(r) : 1 / Math.round(1 / r);
+    if ((r > 1.6 || r < 0.6) && Math.abs(r / n - 1) < 0.12) for (let j = 0; j < i; j++) pts[j].a /= n;
+  }
+  const mt = marketTime(meta);
+  out.symbol = sym;
+  out._m = mt;
+  out.mkt = mt.market;
+  out._yname = meta.shortName || meta.longName;
+  out.price = meta.regularMarketPrice ?? pts[pts.length - 1].c;
+  const prev = await chart(sym, 'range=1d&interval=1d').then(d => d && d.meta.chartPreviousClose).catch(() => null);
+  out.chg = prev ? (out.price / prev - 1) * 100 : null;
+  out.date = pts[pts.length - 1].day;
+  const first = pts[0];
+  const listed = first.day > `${years[years.length - 1] - 1}-12-31` ? first : null;
+  out.listed = listed ? listed.day : null;
+  const lastAdj = y => { let v = null; for (const p of pts) if (p.y === y) v = p.a; return v; };
+  out.returns = {};
+  for (const y of years) {
+    const end = lastAdj(y), prv = lastAdj(y - 1);
+    if (end == null) {
+      if (listed && listed.y === y + 1) out.returns[y] = {note:`${listed.y % 100}年${listed.m}月成立`};
+      else if (listed && listed.y > y) out.returns[y] = {note:'-未成立'};
+      continue;
+    }
+    out.returns[y] = prv == null ? {v:(end / first.a - 1) * 100, partial:true} : {v:(end / prv - 1) * 100};
+  }
+  if (!it.除息) {
+    const cutoff = new Date(new Date(out.date) - 380 * 864e5);
+    const months = new Set();
+    Object.values((data.events || {}).dividends || {}).forEach(ev => {
+      const d = new Date((ev.date + off) * 1000);
+      if (d >= cutoff) months.add(d.getUTCMonth() + 1);
+    });
+    out.除息 = months.size >= 9 ? '每月' : months.size ? [...months].sort((x, y) => x - y).join(',') : '無';
+  }
+  return out;
+}
+
+function mergeMarket(m) {
+  if (!m || !m.ts) return;
+  DATA.markets = DATA.markets || {};
+  const cur = DATA.markets[m.market];
+  if (!cur || m.ts > cur.ts) DATA.markets[m.market] = {ts:m.ts, text:marketTextOf(m)};
+}
+let customRows = [];
+function fillCats() {
+  document.getElementById('cats').innerHTML = [...new Set(DATA.rows.map(r => r.類))].map(c => `<option value="${esc(c)}">`).join('');
+}
+function rebuildRows() {
+  const rm = new Set(removed);
+  const base = BASE.filter(r => !rm.has(r.代碼));
+  const have = new Set(base.map(r => r.代碼));  // 預設清單之後也加入的代碼，以預設清單為準
+  DATA.rows = base.concat(customRows.filter(r => !have.has(r.代碼)));
+  const rs = document.getElementById('restore');
+  rs.style.display = removed.length ? '' : 'none';
+  rs.textContent = `還原已移除（${removed.length}）`;
+  fillCats(); render();
+}
+async function loadCustom() {
+  rebuildRows();
+  if (!custom.length) return;
+  if (!PROXY) return amsg('尚未設定資料代理，自訂代碼無法載入', 'bad');
+  amsg(`載入自訂代碼 ${custom.length} 檔…`);
+  customRows = await Promise.all(custom.map(it => analyzeJS(it).catch(() => ({...it, custom:true, error:'查無資料'}))));
+  customRows.forEach(r => { mergeMarket(r._m); delete r._m; delete r._yname; });
+  rebuildRows();
+  amsg('');
+}
+
+async function addCode() {
+  const raw = document.getElementById('ac').value.trim().toUpperCase();
+  if (!raw) return amsg('請輸入代碼', 'bad');
+  const [code, ysym] = raw.includes('.') ? [raw.split('.')[0], raw] : [raw, ''];
+  if (!/^[0-9A-Z^=\-]{1,12}$/.test(code)) return amsg('代碼格式不正確', 'bad');
+  if (DATA.rows.some(r => r.代碼 === code)) return amsg(`${code} 已在清單中`, 'bad');
+  if (removed.includes(code)) {  // 原本在預設清單，直接還原
+    removed = removed.filter(x => x !== code); LS.set('etf-removed', removed);
+    document.getElementById('ac').value = '';
+    rebuildRows(); return amsg(`已還原 ${code}`, 'ok');
+  }
+  if (!PROXY) return amsg('尚未設定資料代理（PROXY），無法新增', 'bad');
+  const btn = document.getElementById('addBtn');
+  btn.disabled = true; amsg(`查詢 ${raw} 中…`);
+  try {
+    const it = {代碼:code, Yahoo代號:ysym, 名稱:document.getElementById('an').value.trim(),
+      區:document.getElementById('ar').value, 類:document.getElementById('at').value.trim() || '自選', 除息:''};
+    const row = await analyzeJS(it);
+    if (row.error) throw new Error(`查無 ${raw} 的資料（台股請輸入數字代碼，海外如 QQQ、VWRA.L）`);
+    if (!it.名稱) it.名稱 = (row.mkt === '台股' && await twName(code)) || row._yname || code;
+    if (!it.區) it.區 = REGION_BY_MARKET[row.mkt] || '全球';
+    Object.assign(row, {名稱:it.名稱, 區:it.區});
+    mergeMarket(row._m); delete row._m; delete row._yname;
+    custom.push(it); LS.set('etf-custom', custom);
+    customRows.push(row);
+    ['ac', 'an'].forEach(id => document.getElementById(id).value = '');
+    rebuildRows();
+    amsg(`已加入 ${code} ${it.名稱}（只存在你的瀏覽器）`, 'ok');
+  } catch (e) { amsg(e.message, 'bad'); }
+  btn.disabled = false;
+}
+document.getElementById('addBtn').onclick = addCode;
+document.getElementById('ac').addEventListener('keydown', e => { if (e.key === 'Enter') addCode(); });
+document.getElementById('restore').onclick = () => {
+  removed = []; LS.set('etf-removed', removed); rebuildRows(); amsg('已還原預設清單', 'ok');
+};
+document.querySelector('#t tbody').addEventListener('click', e => {
+  const code = e.target.dataset.rm; if (!code) return;
+  const r = DATA.rows.find(x => x.代碼 === code);
+  if (!confirm(`從你的清單移除 ${code} ${r ? r.名稱 : ''}？`)) return;
+  if (r && r.custom) {
+    custom = custom.filter(x => x.代碼 !== code); LS.set('etf-custom', custom);
+    customRows = customRows.filter(x => x.代碼 !== code);
+  } else {
+    removed.push(code); LS.set('etf-removed', removed);
+  }
+  S.picked = S.picked.filter(x => x !== code);
+  rebuildRows(); amsg(`已移除 ${code}`, 'ok');
+});
+
+const spanEl = document.getElementById('span');
+spanEl.max = MAX_SPAN; spanEl.value = S.span;
+spanEl.addEventListener('input', () => { S.span = +spanEl.value; render(); });
+document.addEventListener('click', closePop);
+document.getElementById('q').addEventListener('input', body);
+loadCustom();
+</script>
+</body>
+</html>
