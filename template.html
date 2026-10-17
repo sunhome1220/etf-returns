@@ -69,6 +69,7 @@
   .explain { max-width:760px; margin:20px 0 8px; font-size:13px; color:#444; line-height:1.6; }
   .explain h2 { font-size:15px; margin:0 0 6px; } .explain h3 { font-size:14px; margin:12px 0 4px; }
   .explain dt { font-weight:600; margin-top:6px; } .explain dd { margin:0 0 0 1em; }
+  .explain .warn { color:#b26a00; }
   .explain ul { margin:0; padding-left:1.4em; } .explain li { margin-bottom:4px; }
   tfoot td { position:sticky; bottom:0; white-space:normal; background:#f7f7f7; font-size:10px; color:#888; padding:4px 10px; }
   tfoot .gen { float:right; color:#888; margin-left:24px; }
@@ -89,7 +90,7 @@
 <div class="bar">
   <label class="span">年度範圍：近 <b id="spanN"></b> 年 <span id="spanR"></span>
     <input id="span" type="range" min="1" step="1"></label>
-  <select id="method" title="報酬率算法（說明見頁面最下方）"><option value="tr">股息再投入</option><option value="simple">股息不再投入</option></select>
+  <select id="method" title="報酬率算法（說明見頁面最下方）"><option value="simple">股息不再投入</option><option value="tr">股息再投入</option></select>
   <input id="q" type="search" placeholder="搜尋代碼 / 名稱">
   <button id="onlyPicked">只看勾選</button>
   <button id="hidePicked">隱藏勾選</button>
@@ -115,16 +116,17 @@
 <section class="explain">
   <h2>兩種報酬率算法的差異</h2>
   <dl>
-    <dt>股息再投入（預設）</dt>
-    <dd>用 Yahoo 的「還原收盤價」計算：每次除息，股息在除息日就以當天價格買回同一檔，之後跟著漲跌。等同「報酬指數」的總報酬，也是基金績效、ETF 公開說明書的常見算法。<br>
-      公式：該年最後還原收盤價 ÷ 前一年最後還原收盤價 − 1</dd>
-    <dt>股息不再投入</dt>
-    <dd>股息領了就放著當現金，不再買回。<br>
+    <dt>股息不再投入（預設）</dt>
+    <dd>股息領了就放著當現金，不再買回。和一般投資人自己對帳的方式相同，不需要假設何時、用什麼價格買回。<br>
       公式：（該年最後收盤價 ＋ 當年除息合計 − 前一年最後收盤價）÷ 前一年最後收盤價；今年則用最新收盤價。</dd>
+    <dt>股息再投入（選項）</dt>
+    <dd>用 Yahoo 的「還原收盤價」計算：每次除息，假設股息在<b>除息日</b>就以當天價格買回同一檔，之後跟著漲跌。等同「報酬指數」的總報酬，也是基金績效、ETF 公開說明書的常見算法。<br>
+      公式：該年最後還原收盤價 ÷ 前一年最後還原收盤價 − 1<br>
+      <span class="warn">這是理想化的假設：實際上股息要到發放日（通常是除息後 3～6 週）才入帳，入帳後買回的價格也和除息日不同，所以真正自己再投入的結果和這個數字會有落差。</span></dd>
   </dl>
   <h3>為什麼兩者數字不同</h3>
   <ul>
-    <li><b>股息的複利</b>：再投入的股息在除息後會跟著漲跌。除息後到年底若上漲，「再投入」較高；若下跌，「不再投入」較高。配息越多、越頻繁（月配、季配），差距越大；不配息的標的兩者相同。<br>
+    <li><b>股息的複利</b>：「再投入」假設股息在除息日就買回，之後跟著漲跌。除息後到年底若上漲，「再投入」較高；若下跌，「不再投入」較高。配息越多、越頻繁（月配、季配），差距越大；不配息的標的兩者相同。<br>
       例：年初 100 元，年中除息 5 元（除息後 105 元），年底 120 元。不再投入：(120＋5−100)÷100 ＝ 25.0%；再投入：5 元以 105 元買回，持股變 1＋5÷105 倍，年底市值 120×1.0476 ＝ 125.7，報酬 25.7%。</li>
     <li><b>股息歸屬年度</b>：兩種算法都以<b>除息日</b>歸年，不是發放日。12 月除息、隔年 1 月才入帳的股息算在除息那一年。</li>
     <li><b>股票分割</b>：兩種算法都已把分割（如 0050 於 2025 年 6 月 1 拆 4）換算成相同基準，分割前後的價格與配息可直接比較。</li>
@@ -152,7 +154,7 @@ const cols = [
     const x = r.returns && r.returns[y];
     if (!x) return {sort:null, text:'(空白)'};
     if (x.note) return {sort:null, text:x.note};
-    const v = S.method === 'simple' && x.s != null ? x.s : x.v;   // 指數等沒有 s 的沿用 v
+    const v = S.calc === 'simple' && x.s != null ? x.s : x.v;   // 指數等沒有 s 的沿用 v
     return {sort:v, text:fmtPct(v), partial:x.partial};
   }})),
 ];
@@ -166,8 +168,9 @@ S.filters = S.filters || {};      // k -> {vals:[允許的文字] | null, min, m
 S.picked = S.picked || [];        // 勾選的代碼
 S.mode = S.mode || '';            // '' | 'only' | 'hide'
 S.hiddenCols = S.hiddenCols || [];
-S.method = S.method || 'tr';        // 'tr' 股息再投入 | 'simple' 股息不再投入
-const methodName = () => S.method === 'simple' ? '股息不再投入' : '股息再投入';
+delete S.method;                    // 舊版欄位（當時預設再投入）
+S.calc = S.calc || 'simple';        // 'simple' 股息不再投入（預設）| 'tr' 股息再投入
+const methodName = () => S.calc === 'simple' ? '股息不再投入' : '股息再投入';
 const MAX_SPAN = Math.min(10, years.length);
 S.span = Math.min(S.span || 3, MAX_SPAN);   // 報酬率年度範圍，預設近三年
 if (S.collapsed == null) S.collapsed = innerWidth < 600;   // 查詢選項區收合，手機預設收合
@@ -396,9 +399,9 @@ async function exportImage() {
   };
   const footLines = wrap(foot, '10px ' + getComputedStyle(document.body).fontFamily);
   // 目前算法說明，放在表格下方
-  const how = S.method === 'simple'
+  const how = S.calc === 'simple'
     ? '算法：股息不再投入＝（該年最後收盤價＋當年除息合計−前一年最後收盤價）÷ 前一年最後收盤價；股息領了不再買回，以除息日歸年。'
-    : '算法：股息再投入＝該年最後還原收盤價 ÷ 前一年最後還原收盤價 − 1；股息於除息日以當日價格買回（同報酬指數）。';
+    : '算法：股息再投入＝該年最後還原收盤價 ÷ 前一年最後還原收盤價 − 1；假設股息於除息日以當日價格買回（同報酬指數，實際入帳會晚數週）。';
   const howLines = wrap(how + '今年為年初至今；斜體＝上市當年，從上市首日收盤起算。', '12px ' + getComputedStyle(document.body).fontFamily);
   const top = 56, H = top + TB + 10 + howLines.length * 17 + 4 + footLines.length * 14 + (src ? 14 : 0) + PAD;
   cv.width = (W + PAD * 2) * SC; cv.height = H * SC;
@@ -444,8 +447,8 @@ async function exportImage() {
 }
 document.getElementById('expBtn').onclick = () => exportImage().catch(e => alert('匯出失敗：' + e.message));
 document.getElementById('reset').onclick = () => {
-  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, method:'tr'});
-  spanEl.value = 3; methodEl.value = 'tr';
+  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, calc:'simple'});
+  spanEl.value = 3; methodEl.value = 'simple';
   document.getElementById('q').value = ''; render();
 };
 // ---- 個人追蹤清單（watchlist.js，與「我的追蹤清單」頁同步）----
@@ -661,8 +664,8 @@ const spanEl = document.getElementById('span');
 spanEl.max = MAX_SPAN; spanEl.value = S.span;
 spanEl.addEventListener('input', () => { S.span = +spanEl.value; render(); });
 const methodEl = document.getElementById('method');
-methodEl.value = S.method;
-methodEl.addEventListener('change', () => { S.method = methodEl.value; render(); });
+methodEl.value = S.calc;
+methodEl.addEventListener('change', () => { S.calc = methodEl.value; render(); });
 document.addEventListener('click', closePop);
 document.getElementById('q').addEventListener('input', body);
 loadCustom();
