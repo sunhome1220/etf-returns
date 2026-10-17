@@ -382,6 +382,18 @@ async function analyzeJS(it) {
     const r = pts[i - 1].a / pts[i].a, n = r > 1 ? Math.round(r) : 1 / Math.round(1 / r);
     if ((r > 1.6 || r < 0.6) && Math.abs(r / n - 1) < 0.12) for (let j = 0; j < i; j++) pts[j].a /= n;
   }
+  // Yahoo 有時缺最後一根日K（例如除息日當天）：用最新成交價補上，期間除息一併計入還原價
+  const rmt = meta.regularMarketTime, lastPx = meta.regularMarketPrice;
+  if (rmt && lastPx) {
+    const dn = new Date((rmt + off) * 1000), dayNow = dn.toISOString().slice(0, 10), lp = pts[pts.length - 1];
+    if (dayNow > lp.day) {
+      const div = Object.values((data.events || {}).dividends || {}).reduce((s, ev) => {
+        const dd = new Date((ev.date + off) * 1000).toISOString().slice(0, 10);
+        return dd > lp.day && dd <= dayNow ? s + ev.amount : s;
+      }, 0);
+      pts.push({y:dn.getUTCFullYear(), m:dn.getUTCMonth() + 1, day:dayNow, c:lastPx, a:lp.a * (lastPx + div) / lp.c});
+    }
+  }
   const mt = marketTime(meta);
   out.symbol = sym;
   out._m = mt;

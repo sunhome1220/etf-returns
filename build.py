@@ -111,6 +111,17 @@ def analyze(row, years):
         if (r > 1.6 or r < 0.6) and abs(r / n - 1) < 0.12:
             pts[:i] = [(d, c, a / n) for d, c, a in pts[:i]]
 
+    # Yahoo 有時缺最後一根日K（例如除息日當天）：用最新成交價補上，期間除息一併計入還原價
+    meta = data["meta"]
+    rmt, last_px = meta.get("regularMarketTime"), meta.get("regularMarketPrice")
+    if rmt and last_px:
+        d_now = dt.datetime.utcfromtimestamp(rmt + off).date()
+        d_last, c_last, a_last = pts[-1]
+        if d_now > d_last:
+            div = sum(ev["amount"] for ev in (data.get("events") or {}).get("dividends", {}).values()
+                      if d_last < dt.datetime.utcfromtimestamp(ev["date"] + off).date() <= d_now)
+            pts.append((d_now, last_px, a_last * (last_px + div) / c_last))
+
     out["symbol"] = symbol
     out["_market"] = market_time(data["meta"])
     out["_yname"] = data["meta"].get("shortName") or data["meta"].get("longName")
