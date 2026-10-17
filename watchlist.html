@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>我的追蹤清單</title>
+<style>
+  :root { --bd:#d9d9d9; --green:#2c7a3f; --text:#222; --muted:#666; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 "Microsoft JhengHei","PingFang TC",sans-serif; background:#fff; color:var(--text); }
+  header { border-bottom:1px solid var(--bd); background:#f7f7f7; }
+  .nav { max-width:1100px; margin:0 auto; padding:0 16px; display:flex; align-items:center; gap:24px; min-height:52px; flex-wrap:wrap; }
+  .brand { font-weight:700; font-size:17px; color:var(--text); text-decoration:none; }
+  .nav ul { list-style:none; display:flex; gap:4px; margin:0; padding:0; flex-wrap:wrap; }
+  .nav a.item { display:block; padding:6px 12px; border-radius:4px; color:var(--text); text-decoration:none; }
+  .nav a.item:hover { background:#e8f2ea; color:var(--green); }
+  .nav a.item.on { background:var(--green); color:#fff; }
+  main { max-width:1100px; margin:0 auto; padding:20px 16px 40px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .lead { color:var(--muted); margin:0 0 16px; }
+  .box { border:1px solid var(--bd); border-radius:6px; padding:12px; margin-bottom:16px; background:#fafafa; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  input, select, button { font:inherit; padding:4px 8px; border:1px solid #bbb; border-radius:4px; background:#fff; }
+  button { cursor:pointer; background:#fafafa; }
+  button.primary { background:var(--green); color:#fff; border-color:var(--green); }
+  button.danger { color:#c00; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  #msg.ok { color:var(--green); } #msg.bad { color:#c00; } #msg { color:var(--muted); }
+  .stats { color:var(--muted); margin-left:auto; }
+  .wrap { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; min-width:720px; }
+  th, td { border:1px solid var(--bd); padding:4px 8px; text-align:left; }
+  th { background:#f3f3f3; cursor:pointer; user-select:none; white-space:nowrap; }
+  th .s { color:#999; font-size:11px; margin-left:3px; }
+  td input, td select { width:100%; padding:2px 6px; border-color:transparent; background:transparent; }
+  td input:hover, td select:hover, td input:focus, td select:focus { border-color:#bbb; background:#fff; }
+  td.code { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .badge { font-size:12px; padding:0 6px; border-radius:3px; border:1px solid; white-space:nowrap; }
+  .b-default { color:#666; border-color:#bbb; }
+  .b-custom { color:var(--green); border-color:var(--green); }
+  .b-edited { color:#b26a00; border-color:#e0a000; margin-left:4px; }
+  td.act { white-space:nowrap; }
+  td.act button { padding:1px 8px; font-size:13px; }
+  .removed { margin-top:20px; }
+  .removed h2 { font-size:15px; margin:0 0 8px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { border:1px solid var(--bd); border-radius:14px; padding:2px 4px 2px 10px; background:#fff; }
+  .chip button { border:none; background:none; color:var(--green); padding:0 6px; }
+  .empty { color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <nav class="nav">
+    <a class="brand" href="./">投資工具</a>
+    <ul>
+      <li><a class="item" href="returns.html">各年度含息報酬率</a></li>
+      <li><a class="item on" href="watchlist.html">我的追蹤清單</a></li>
+    </ul>
+  </nav>
+</header>
+<main>
+  <h1>我的追蹤清單</h1>
+  <p class="lead">清單只存在你的瀏覽器，「各年度含息報酬率」會依此清單顯示並即時同步。換電腦或瀏覽器時可用「匯出 / 匯入」搬移。</p>
+
+  <div class="box">
+    <div class="row">
+      <b>新增</b>
+      <input id="ac" placeholder="代碼，如 2330、QQQ、VWRA.L" size="22">
+      <input id="an" placeholder="名稱（選填）" size="14">
+      <select id="ar"><option value="">區（自動）</option></select>
+      <input id="at" list="cats" placeholder="類（預設 自選）" size="10">
+      <button id="addBtn" class="primary">加入</button>
+      <span id="msg"></span>
+    </div>
+  </div>
+
+  <div class="row" style="margin-bottom:8px">
+    <input id="q" type="search" placeholder="搜尋代碼 / 名稱 / 區 / 類" size="24">
+    <button id="exportBtn">匯出</button>
+    <button id="importBtn">匯入</button>
+    <input id="importFile" type="file" accept="application/json,.json" hidden>
+    <button id="resetBtn" class="danger">重設為預設清單</button>
+    <span class="stats" id="stats"></span>
+  </div>
+  <div class="wrap"><table>
+    <thead><tr id="hd"></tr></thead>
+    <tbody id="tb"><tr><td colspan="6" class="empty">載入中…</td></tr></tbody>
+  </table></div>
+
+  <div class="removed">
+    <h2>已從預設清單移除</h2>
+    <div class="chips" id="rmList"></div>
+  </div>
+</main>
+<datalist id="cats"></datalist>
+
+<script src="watchlist.js"></script>
+<script>
+const REGIONS = ['台灣', '美國', '陸港', '全球'];
+const COLS = [
+  {k:'代碼', label:'代碼'}, {k:'名稱', label:'名稱'}, {k:'區', label:'區'}, {k:'類', label:'類'},
+  {k:'source', label:'來源'}, {k:'', label:'操作'},
+];
+let BASE = [];
+let sortKey = '', sortDir = 1;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+const msg = (t, cls) => { $('msg').textContent = t; $('msg').className = cls || ''; };
+
+function regionOptions(cur) {
+  const list = REGIONS.includes(cur) || !cur ? REGIONS : REGIONS.concat([cur]);
+  return list.map(r => `<option${r === cur ? ' selected' : ''}>${esc(r)}</option>`).join('');
+}
+
+function render() {
+  const all = WL.items(BASE);
+  const q = $('q').value.trim().toLowerCase();
+  let list = all.filter(it => !q || [it.代碼, it.名稱, it.區, it.類].join(' ').toLowerCase().includes(q));
+  if (sortKey) list = list.slice().sort((a, b) => String(a[sortKey]).localeCompare(String(b[sortKey]), 'zh-Hant', {numeric:true}) * sortDir);
+
+  $('hd').innerHTML = COLS.map(c => `<th data-k="${c.k}">${c.label}${c.k ? `<span class="s">${sortKey === c.k ? (sortDir > 0 ? '▲' : '▼') : '⇅'}</span>` : ''}</th>`).join('');
+  $('tb').innerHTML = list.length ? list.map(it => `
+    <tr data-code="${esc(it.代碼)}">
+      <td class="code">${esc(it.代碼)}${it.Yahoo代號 && it.Yahoo代號 !== it.代碼 ? ` <small style="color:#999">${esc(it.Yahoo代號)}</small>` : ''}</td>
+      <td><input data-f="名稱" value="${esc(it.名稱)}"></td>
+      <td><select data-f="區">${regionOptions(it.區)}</select></td>
+      <td><input data-f="類" list="cats" value="${esc(it.類)}"></td>
+      <td><span class="badge b-${it.source}">${it.source === 'custom' ? '自訂' : '預設'}</span>${it.edited ? '<span class="badge b-edited">已修改</span>' : ''}</td>
+      <td class="act">${it.edited ? '<button data-a="unedit" title="名稱/區/類 恢復成預設值">恢復原值</button> ' : ''}<button data-a="remove" class="danger">移除</button></td>
+    </tr>`).join('') : `<tr><td colspan="6" class="empty">${q ? '沒有符合的項目' : '清單是空的'}</td></tr>`;
+
+  const rm = WL.removedItems(BASE);
+  $('rmList').innerHTML = rm.length
+    ? rm.map(r => `<span class="chip">${esc(r.代碼)} ${esc(r.名稱)}<button data-restore="${esc(r.代碼)}" title="還原">還原</button></span>`).join('') +
+      ' <button id="restoreAll">全部還原</button>'
+    : '<span class="empty">（無）</span>';
+
+  const nc = all.filter(x => x.source === 'custom').length;
+  $('stats').textContent = `共 ${all.length} 檔（預設 ${all.length - nc}、自訂 ${nc}、已移除 ${rm.length}）`;
+  $('cats').innerHTML = [...new Set(all.map(x => x.類).filter(Boolean))].map(c => `<option value="${esc(c)}">`).join('');
+}
+
+// ---- 事件 ----
+$('hd').addEventListener('click', e => {
+  const k = e.target.closest('th')?.dataset.k; if (!k) return;
+  if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = 1; }
+  render();
+});
+$('tb').addEventListener('change', e => {
+  const f = e.target.dataset.f; if (!f) return;
+  const code = e.target.closest('tr').dataset.code;
+  const v = e.target.value.trim();
+  if (!v) { msg(`${f}不可空白`, 'bad'); return render(); }
+  WL.edit(code, {[f]:v}, BASE);
+  render(); msg(`已更新 ${code} 的${f}`, 'ok');
+});
+$('tb').addEventListener('click', e => {
+  const a = e.target.dataset.a; if (!a) return;
+  const code = e.target.closest('tr').dataset.code;
+  if (a === 'remove') {
+    if (!confirm(`從你的清單移除 ${code}？`)) return;
+    WL.remove(code); msg(`已移除 ${code}`, 'ok');
+  }
+  if (a === 'unedit') { WL.unedit(code); msg(`${code} 已恢復預設值`, 'ok'); }
+  render();
+});
+$('rmList').addEventListener('click', e => {
+  if (e.target.id === 'restoreAll') { WL.restoreAll(); msg('已全部還原', 'ok'); return render(); }
+  const code = e.target.dataset.restore; if (!code) return;
+  WL.restore(code); msg(`已還原 ${code}`, 'ok'); render();
+});
+
+async function add() {
+  $('addBtn').disabled = true;
+  try {
+    const {raw, code} = WL.parseCode($('ac').value);
+    if (WL.items(BASE).some(it => it.代碼 === code)) throw new Error(`${code} 已在清單中`);
+    let it = {代碼:code}, res;
+    if (WL.state().removed.includes(code)) res = WL.addCustom(it);
+    else {
+      msg(`查詢 ${raw} 中…`);
+      it = await WL.lookup(raw, {名稱:$('an').value.trim(), 區:$('ar').value, 類:$('at').value.trim()});
+      res = WL.addCustom(it);
+    }
+    $('ac').value = ''; $('an').value = '';
+    render();
+    msg(res === 'restored' ? `已還原 ${code}` : `已加入 ${code} ${it.名稱}`, 'ok');
+  } catch (e) { msg(e.message, 'bad'); }
+  $('addBtn').disabled = false;
+}
+$('addBtn').onclick = add;
+$('ac').addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+$('q').addEventListener('input', render);
+
+$('exportBtn').onclick = () => {
+  const blob = new Blob([JSON.stringify(WL.exportData(), null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `我的追蹤清單-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click(); URL.revokeObjectURL(a.href);
+  msg('已匯出', 'ok');
+};
+$('importBtn').onclick = () => $('importFile').click();
+$('importFile').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    const obj = JSON.parse(await f.text());
+    if (!confirm('匯入會取代目前的清單，確定嗎？')) return;
+    WL.importData(obj); render(); msg('已匯入', 'ok');
+  } catch (err) { msg('匯入失敗：' + err.message, 'bad'); }
+};
+$('resetBtn').onclick = () => {
+  if (!confirm('清除所有自訂、移除、修改，恢復成預設清單？（建議先匯出備份）')) return;
+  WL.resetAll(); render(); msg('已重設為預設清單', 'ok');
+};
+
+WL.onChange(render);   // 報酬率頁新增/移除時同步
+$('ar').innerHTML += REGIONS.map(r => `<option>${r}</option>`).join('');
+WL.loadBase().then(b => { BASE = b; render(); })
+  .catch(e => { $('tb').innerHTML = `<tr><td colspan="6" class="empty">${esc(e.message)}</td></tr>`; });
+</script>
+</body>
+</html>

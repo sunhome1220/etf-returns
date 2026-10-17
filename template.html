@@ -10,6 +10,8 @@
   h1 { font-size:18px; margin:0 0 8px; }
   h1 .home { color:#2c7a3f; text-decoration:none; font-weight:normal; }
   h1 .home:hover { text-decoration:underline; }
+  h1 .sub { font-size:14px; margin-left:16px; }
+  .manage { color:#2c7a3f; font-size:13px; }
   .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; font-size:13px; }
   .bar input[type=search] { padding:4px 8px; border:1px solid var(--bd); border-radius:4px; width:160px; }
   .bar button, .pop button { padding:3px 10px; border:1px solid #bbb; background:#fafafa; border-radius:4px; cursor:pointer; font:inherit; }
@@ -61,7 +63,8 @@
 </style>
 </head>
 <body>
-<h1><a href="./" class="home" title="回首頁">投資工具</a> › 各年度含息報酬率</h1>
+<h1><a href="./" class="home" title="回首頁">投資工具</a> › 各年度含息報酬率
+  <a href="watchlist.html" class="home sub">我的追蹤清單</a></h1>
 <div class="bar">
   <label class="span">年度範圍：近 <b id="spanN"></b> 年 <span id="spanR"></span>
     <input id="span" type="range" min="1" step="1"></label>
@@ -81,10 +84,12 @@
   <input id="at" list="cats" placeholder="類（預設 自選）" size="10"><datalist id="cats"></datalist>
   <button id="addBtn">加入</button>
   <button id="restore" style="display:none"></button>
+  <a href="watchlist.html" class="manage">管理我的追蹤清單 →</a>
   <span id="amsg"></span>
 </div>
 <div class="wrap"><table id="t"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
 
+<script src="watchlist.js"></script>
 <script>
 const DATA = /*DATA*/null;
 const years = DATA.years;
@@ -317,20 +322,14 @@ document.getElementById('reset').onclick = () => {
   spanEl.value = 3;
   document.getElementById('q').value = ''; render();
 };
-// ---- 每位使用者自己的清單：新增 / 移除代碼存在各自的瀏覽器 ----
+// ---- 個人追蹤清單（watchlist.js，與「我的追蹤清單」頁同步）----
 // PROXY：Cloudflare Worker 網址（瀏覽器無法直接向 Yahoo 抓資料）
 const PROXY = /*PROXY*/'';
-const LS = {
-  get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
-};
-let custom = LS.get('etf-custom', []);     // [{代碼, 名稱, 區, 類, Yahoo代號}]
-let removed = LS.get('etf-removed', []);   // 從預設清單移除的代碼
+WL.setProxy(PROXY);
 const BASE = DATA.rows;
+const baseByCode = Object.fromEntries(BASE.map(r => [r.代碼, r]));
 const amsg = (t, cls) => { const el = document.getElementById('amsg'); el.textContent = t; el.className = cls || ''; };
 
-const MK = {'Asia/Taipei':['台股','台北'], 'America/New_York':['美股','紐約'], 'Europe/London':['英股','倫敦']};
-const REGION_BY_MARKET = {台股:'台灣', 美股:'美國', 英股:'全球'};
 const pad = n => String(n).padStart(2, '0');
 function fmtTs(ts, off) {
   const d = new Date((ts + off) * 1000);
@@ -338,7 +337,7 @@ function fmtTs(ts, off) {
 }
 function marketTime(meta) {  // 與 build.py market_time 相同：已收盤以收盤時間為準
   const tz = meta.exchangeTimezoneName || '';
-  const [market, city] = MK[tz] || [meta.fullExchangeName || tz, tz];
+  const [market, city] = WL.MK[tz] || [meta.fullExchangeName || tz, tz];
   const off = meta.gmtoffset || 0, rmt = meta.regularMarketTime;
   const reg = (meta.currentTradingPeriod || {}).regular;
   const now = Date.now() / 1000;
@@ -358,34 +357,13 @@ function marketTextOf(m) {
   return t;
 }
 
-async function getJSON(url) {
-  const r = await fetch(url);
-  if (!r.ok) return null;
-  return r.json();
-}
-async function chart(sym, qs) {
-  const j = await getJSON(`${PROXY}/chart/${encodeURIComponent(sym)}?${qs}`);
-  const res = j && j.chart && j.chart.result;
-  return res && res[0] && res[0].timestamp ? res[0] : null;
-}
-function symbolsFor(it) {
-  if (it.Yahoo代號) return [it.Yahoo代號];
-  if (/^\d{4,6}[A-Z]?$/.test(it.代碼)) return [it.代碼 + '.TW', it.代碼 + '.TWO'];
-  return [it.代碼];
-}
-async function twName(code) {
-  const j = await getJSON(`${PROXY}/twname/${encodeURIComponent(code)}`).catch(() => null);
-  const hit = j && (j.msgArray || []).find(x => x.n);
-  return hit ? hit.n : null;
-}
-
 // 與 build.py analyze 相同的計算
 async function analyzeJS(it) {
   const p1 = Math.floor(new Date(years[years.length - 1] - 1, 11, 1) / 1000);
   const p2 = Math.floor(Date.now() / 1000) + 86400;
   let data = null, sym = null;
-  for (const s of symbolsFor(it)) {
-    data = await chart(s, `period1=${p1}&period2=${p2}&interval=1d&events=div%7Csplit`).catch(() => null);
+  for (const s of WL.symbolsFor(it)) {
+    data = await WL.chart(s, `period1=${p1}&period2=${p2}&interval=1d&events=div%7Csplit`).catch(() => null);
     if (data) { sym = s; break; }
   }
   const out = {...it, custom:true};
@@ -408,9 +386,8 @@ async function analyzeJS(it) {
   out.symbol = sym;
   out._m = mt;
   out.mkt = mt.market;
-  out._yname = meta.shortName || meta.longName;
   out.price = meta.regularMarketPrice ?? pts[pts.length - 1].c;
-  const prev = await chart(sym, 'range=1d&interval=1d').then(d => d && d.meta.chartPreviousClose).catch(() => null);
+  const prev = await WL.chart(sym, 'range=1d&interval=1d').then(d => d && d.meta.chartPreviousClose).catch(() => null);
   out.chg = prev ? (out.price / prev - 1) * 100 : null;
   out.date = pts[pts.length - 1].day;
   const first = pts[0];
@@ -445,77 +422,64 @@ function mergeMarket(m) {
   const cur = DATA.markets[m.market];
   if (!cur || m.ts > cur.ts) DATA.markets[m.market] = {ts:m.ts, text:marketTextOf(m)};
 }
-let customRows = [];
+const customRows = {};   // 代碼 → 計算好的自訂項目
 function fillCats() {
   document.getElementById('cats').innerHTML = [...new Set(DATA.rows.map(r => r.類))].map(c => `<option value="${esc(c)}">`).join('');
 }
+// 依個人清單組出表格資料：預設項目用預先算好的資料，自訂項目用瀏覽器算的資料
 function rebuildRows() {
-  const rm = new Set(removed);
-  const base = BASE.filter(r => !rm.has(r.代碼));
-  const have = new Set(base.map(r => r.代碼));  // 預設清單之後也加入的代碼，以預設清單為準
-  DATA.rows = base.concat(customRows.filter(r => !have.has(r.代碼)));
-  const rs = document.getElementById('restore');
-  rs.style.display = removed.length ? '' : 'none';
-  rs.textContent = `還原已移除（${removed.length}）`;
+  DATA.rows = WL.items(BASE).map(it => {
+    const src = it.source === 'default' ? baseByCode[it.代碼] : customRows[it.代碼];
+    const row = src ? {...src} : {...it, custom:true, error:'載入中…'};
+    return Object.assign(row, {名稱:it.名稱, 區:it.區, 類:it.類});
+  });
+  const n = WL.state().removed.length, rs = document.getElementById('restore');
+  rs.style.display = n ? '' : 'none';
+  rs.textContent = `還原已移除（${n}）`;
   fillCats(); render();
 }
+// 計算尚未載入的自訂項目
 async function loadCustom() {
   rebuildRows();
-  if (!custom.length) return;
-  if (!PROXY) return amsg('尚未設定資料代理，自訂代碼無法載入', 'bad');
-  amsg(`載入自訂代碼 ${custom.length} 檔…`);
-  customRows = await Promise.all(custom.map(it => analyzeJS(it).catch(() => ({...it, custom:true, error:'查無資料'}))));
-  customRows.forEach(r => { mergeMarket(r._m); delete r._m; delete r._yname; });
+  const todo = WL.items(BASE).filter(it => it.source === 'custom' && !customRows[it.代碼]);
+  if (!todo.length) return;
+  if (!await WL.proxy()) return amsg('尚未設定資料代理，自訂代碼無法載入', 'bad');
+  amsg(`載入自訂代碼 ${todo.length} 檔…`);
+  await Promise.all(todo.map(async it => {
+    const r = await analyzeJS(it).catch(() => ({...it, custom:true, error:'查無資料'}));
+    mergeMarket(r._m); delete r._m;
+    customRows[it.代碼] = r;
+  }));
   rebuildRows();
   amsg('');
 }
+WL.onChange(loadCustom);   // 「我的追蹤清單」頁修改後即時同步
 
 async function addCode() {
-  const raw = document.getElementById('ac').value.trim().toUpperCase();
-  if (!raw) return amsg('請輸入代碼', 'bad');
-  const [code, ysym] = raw.includes('.') ? [raw.split('.')[0], raw] : [raw, ''];
-  if (!/^[0-9A-Z^=\-]{1,12}$/.test(code)) return amsg('代碼格式不正確', 'bad');
-  if (DATA.rows.some(r => r.代碼 === code)) return amsg(`${code} 已在清單中`, 'bad');
-  if (removed.includes(code)) {  // 原本在預設清單，直接還原
-    removed = removed.filter(x => x !== code); LS.set('etf-removed', removed);
-    document.getElementById('ac').value = '';
-    rebuildRows(); return amsg(`已還原 ${code}`, 'ok');
-  }
-  if (!PROXY) return amsg('尚未設定資料代理（PROXY），無法新增', 'bad');
   const btn = document.getElementById('addBtn');
-  btn.disabled = true; amsg(`查詢 ${raw} 中…`);
+  btn.disabled = true;
   try {
-    const it = {代碼:code, Yahoo代號:ysym, 名稱:document.getElementById('an').value.trim(),
-      區:document.getElementById('ar').value, 類:document.getElementById('at').value.trim() || '自選', 除息:''};
-    const row = await analyzeJS(it);
-    if (row.error) throw new Error(`查無 ${raw} 的資料（台股請輸入數字代碼，海外如 QQQ、VWRA.L）`);
-    if (!it.名稱) it.名稱 = (row.mkt === '台股' && await twName(code)) || row._yname || code;
-    if (!it.區) it.區 = REGION_BY_MARKET[row.mkt] || '全球';
-    Object.assign(row, {名稱:it.名稱, 區:it.區});
-    mergeMarket(row._m); delete row._m; delete row._yname;
-    custom.push(it); LS.set('etf-custom', custom);
-    customRows.push(row);
+    const {raw, code} = WL.parseCode(document.getElementById('ac').value);
+    if (DATA.rows.some(r => r.代碼 === code)) throw new Error(`${code} 已在清單中`);
+    amsg(`查詢 ${raw} 中…`);
+    const it = WL.state().removed.includes(code) ? {代碼:code} : await WL.lookup(raw, {
+      名稱:document.getElementById('an').value.trim(), 區:document.getElementById('ar').value,
+      類:document.getElementById('at').value.trim()});
+    const res = WL.addCustom(it);
     ['ac', 'an'].forEach(id => document.getElementById(id).value = '');
-    rebuildRows();
-    amsg(`已加入 ${code} ${it.名稱}（只存在你的瀏覽器）`, 'ok');
+    await loadCustom();
+    amsg(res === 'restored' ? `已還原 ${code}` : `已加入 ${code} ${it.名稱}（只存在你的瀏覽器）`, 'ok');
   } catch (e) { amsg(e.message, 'bad'); }
   btn.disabled = false;
 }
 document.getElementById('addBtn').onclick = addCode;
 document.getElementById('ac').addEventListener('keydown', e => { if (e.key === 'Enter') addCode(); });
-document.getElementById('restore').onclick = () => {
-  removed = []; LS.set('etf-removed', removed); rebuildRows(); amsg('已還原預設清單', 'ok');
-};
+document.getElementById('restore').onclick = () => { WL.restoreAll(); rebuildRows(); amsg('已還原預設清單', 'ok'); };
 document.querySelector('#t tbody').addEventListener('click', e => {
   const code = e.target.dataset.rm; if (!code) return;
   const r = DATA.rows.find(x => x.代碼 === code);
   if (!confirm(`從你的清單移除 ${code} ${r ? r.名稱 : ''}？`)) return;
-  if (r && r.custom) {
-    custom = custom.filter(x => x.代碼 !== code); LS.set('etf-custom', custom);
-    customRows = customRows.filter(x => x.代碼 !== code);
-  } else {
-    removed.push(code); LS.set('etf-removed', removed);
-  }
+  WL.remove(code);
   S.picked = S.picked.filter(x => x !== code);
   rebuildRows(); amsg(`已移除 ${code}`, 'ok');
 });
