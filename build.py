@@ -214,7 +214,7 @@ def build(rows, years):
     }
 
 
-def write_html(payload, out=os.path.join(HERE, "index.html")):
+def write_html(payload, out=os.path.join(HERE, "returns.html")):
     with open(os.path.join(HERE, "template.html"), encoding="utf-8") as f:
         html = f.read()
     html = html.replace("/*DATA*/null", json.dumps(payload, ensure_ascii=False))
@@ -246,7 +246,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--years", type=int, default=DEFAULT_YEARS, help="抓取年數(含今年)")
     ap.add_argument("--csv", default=CSV_PATH)
-    ap.add_argument("--out", default=os.path.join(HERE, "index.html"))
+    ap.add_argument("--out", default=os.path.join(HERE, "returns.html"))
     args = ap.parse_args()
 
     payload = build(load_rows(args.csv), get_years(args.years))

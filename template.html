@@ -8,6 +8,8 @@
   :root { --bd:#d9d9d9; --hd:#f3f3f3; --active:#efe3ef; --up:#e0218a; --low:#1f4fbf; --down:#2e8b3d; }
   body { margin:0; padding:16px; font:14px/1.4 "Microsoft JhengHei","PingFang TC",sans-serif; background:#fff; color:#222; }
   h1 { font-size:18px; margin:0 0 8px; }
+  h1 .home { color:#2c7a3f; text-decoration:none; font-weight:normal; }
+  h1 .home:hover { text-decoration:underline; }
   .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; font-size:13px; }
   .bar input[type=search] { padding:4px 8px; border:1px solid var(--bd); border-radius:4px; width:160px; }
   .bar button, .pop button { padding:3px 10px; border:1px solid #bbb; background:#fafafa; border-radius:4px; cursor:pointer; font:inherit; }
@@ -59,7 +61,7 @@
 </style>
 </head>
 <body>
-<h1>各年度含息報酬率</h1>
+<h1><a href="./" class="home" title="回首頁">投資工具</a> › 各年度含息報酬率</h1>
 <div class="bar">
   <label class="span">年度範圍：近 <b id="spanN"></b> 年 <span id="spanR"></span>
     <input id="span" type="range" min="1" step="1"></label>
