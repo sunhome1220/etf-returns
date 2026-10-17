@@ -395,7 +395,12 @@ async function exportImage() {
     if (line) out.push(line); return out;
   };
   const footLines = wrap(foot, '10px ' + getComputedStyle(document.body).fontFamily);
-  const top = 56, H = top + TB + 10 + footLines.length * 14 + (src ? 14 : 0) + PAD;
+  // 目前算法說明，放在表格下方
+  const how = S.method === 'simple'
+    ? '算法：股息不再投入＝（該年最後收盤價＋當年除息合計−前一年最後收盤價）÷ 前一年最後收盤價；股息領了不再買回，以除息日歸年。'
+    : '算法：股息再投入＝該年最後還原收盤價 ÷ 前一年最後還原收盤價 − 1；股息於除息日以當日價格買回（同報酬指數）。';
+  const howLines = wrap(how + '今年為年初至今；斜體＝上市當年，從上市首日收盤起算。', '12px ' + getComputedStyle(document.body).fontFamily);
+  const top = 56, H = top + TB + 10 + howLines.length * 17 + 4 + footLines.length * 14 + (src ? 14 : 0) + PAD;
   cv.width = (W + PAD * 2) * SC; cv.height = H * SC;
   g.scale(SC, SC); g.fillStyle = '#fff'; g.fillRect(0, 0, W + PAD * 2, H);
   g.textBaseline = 'middle'; g.fillStyle = '#222'; g.font = 'bold 18px ' + getComputedStyle(document.body).fontFamily;
@@ -421,8 +426,10 @@ async function exportImage() {
     lines.forEach((s, i) => g.fillText(s, tx, y0 + i * lh));
   }
   [wrapEl.scrollTop, wrapEl.scrollLeft] = keep;
-  g.textAlign = 'left'; g.font = '10px ' + getComputedStyle(document.body).fontFamily; g.fillStyle = '#888';
+  g.textAlign = 'left'; g.font = '12px ' + getComputedStyle(document.body).fontFamily; g.fillStyle = '#444';
   let fy = top + TB + 18;
+  howLines.forEach(s => { g.fillText(s, PAD, fy); fy += 17; });
+  fy += 4; g.font = '10px ' + getComputedStyle(document.body).fontFamily; g.fillStyle = '#888';
   footLines.forEach(s => { g.fillText(s, PAD, fy); fy += 14; });
   if (src) { g.fillStyle = '#2c7a3f'; g.fillText(src, PAD, fy); }
   const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
