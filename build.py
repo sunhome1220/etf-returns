@@ -1,7 +1,9 @@
-"""讀取 stocks.csv，從 Yahoo Finance 抓股價，計算各年度含息報酬率，輸出 index.html。
+"""讀取 stocks.csv，從 Yahoo Finance / 證交所抓資料，計算各年度含息報酬率，輸出 returns.html。
+已結束年度的報酬率記在 history.json，之後只重算今年。
 
 用法:  python build.py            (預設抓今年 + 前 9 年，網頁可拉選 1~10 年)
        python build.py --years 8
+       python build.py --full      (忽略 history.json，全部重算)
 """
 import argparse
 import csv
@@ -9,6 +11,8 @@ import datetime as dt
 import json
 import os
 import re
+import threading
+import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -16,8 +20,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 UA = {"User-Agent": "Mozilla/5.0"}
 
 
-def fetch_chart(symbol, start_year):
-    p1 = int(dt.datetime(start_year - 1, 12, 1).timestamp())
+def fetch_chart(symbol, start_year=None, period1=None):
+    p1 = period1 or int(dt.datetime(start_year - 1, 12, 1).timestamp())
     p2 = int(dt.datetime.now().timestamp()) + 86400
     url = ("https://query1.finance.yahoo.com/v8/finance/chart/%s"
            "?period1=%d&period2=%d&interval=1d&events=div%%7Csplit" % (symbol, p1, p2))
@@ -78,11 +82,61 @@ def yahoo_symbols(row):
     return [code]
 
 
-def analyze(row, years):
+# ---- 歷史報酬率快取 history.json：已結束年度的報酬率不會再變，算過就記下來 ----
+HIST_PATH = os.path.join(HERE, "history.json")
+
+
+def load_hist(path=HIST_PATH):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_hist(hist, path=HIST_PATH):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(hist, f, ensure_ascii=False, indent=1, sort_keys=True)
+
+
+def hist_key(row):
+    return row["代碼"] + ("|" + row["Yahoo代號"] if row.get("Yahoo代號") else "")
+
+
+def year_returns(years, end_of, listed, first_val):
+    """end_of(y) → 該年最後一筆（還原）值或 None；listed 為上市日（期間內上市才有）。"""
+    rets = {}
+    for y in years:
+        end, prev = end_of(y), end_of(y - 1)
+        if end is None:
+            if listed and listed.year == y + 1:
+                rets[str(y)] = {"note": "%d年%d月成立" % (listed.year % 100, listed.month)}
+            elif listed and listed.year > y:
+                rets[str(y)] = {"note": "-未成立"}
+            continue
+        if prev is None:  # 當年上市：從第一筆收盤算起
+            rets[str(y)] = {"v": (end / first_val - 1) * 100, "partial": True}
+        else:
+            rets[str(y)] = {"v": (end / prev - 1) * 100}
+    return rets
+
+
+def analyze(row, years, hist=None):
+    hist = {} if hist is None else hist
+    key = hist_key(row)
+    cached = hist.get(key) or {}
+    done = cached.get("returns", {})
+    missing = [y for y in years[1:] if str(y) not in done]
+    if (row.get("Yahoo代號") or "").upper().startswith("TWSE:"):
+        return analyze_twse(row, years, hist, key, cached, missing)
+
+    # 有缺的年度才抓長期資料；否則只抓近 400 天（今年報酬 + 除息月份）
+    recent = int(dt.datetime.now().timestamp()) - 400 * 86400
+    p1 = min(int(dt.datetime(min(missing) - 1, 12, 1).timestamp()), recent) if missing else recent
     data, symbol = None, None
     for s in yahoo_symbols(row):
         try:
-            data = fetch_chart(s, years[-1])
+            data = fetch_chart(s, period1=p1)
         except Exception:
             data = None
         if data:
@@ -130,30 +184,26 @@ def analyze(row, years):
     out["chg"] = (out["price"] / prev - 1) * 100 if prev else None
     out["date"] = pts[-1][0].isoformat()
 
-    # 成立日: 若資料起點晚於查詢起點，視為該日上市
+    # 成立日：資料起點晚於查詢範圍起點，視為該日上市（範圍比上次更早時重新判斷）
     first = pts[0][0]
-    listed = first if first > dt.date(years[-1] - 1, 12, 31) else None
+    if not cached or (missing and min(missing) < cached.get("from", 9999)):
+        listed = first if first > dt.date(years[-1] - 1, 12, 31) else None
+        frm = years[-1]
+    else:
+        listed = dt.date.fromisoformat(cached["listed"]) if cached.get("listed") else None
+        frm = cached.get("from", years[-1])
     out["listed"] = listed.isoformat() if listed else None
 
     def last_adj(year):
         v = [a for d, _, a in pts if d.year == year]
         return v[-1] if v else None
 
-    rets = {}
-    for y in years:
-        end, prev = last_adj(y), last_adj(y - 1)
-        if end is None:
-            if listed and listed.year == y + 1:
-                rets[y] = {"note": "%d年%d月成立" % (listed.year % 100, listed.month)}
-            elif listed and listed.year > y:
-                rets[y] = {"note": "-未成立"}
-            continue
-        if prev is None:  # 當年上市：從第一筆收盤算起
-            base = pts[0][2]
-            rets[y] = {"v": (end / base - 1) * 100, "partial": True}
-        else:
-            rets[y] = {"v": (end / prev - 1) * 100}
-    out["returns"] = {str(k): v for k, v in rets.items()}
+    new = year_returns([years[0]] + missing, last_adj, listed, pts[0][2])
+    out["returns"] = {str(y): (new.get(str(y)) or done.get(str(y))) for y in years
+                      if new.get(str(y)) or done.get(str(y))}
+    # 只記錄已結束、且資料已跨到下一年的年度（避免年底最後一根日K尚未到位）
+    settled = {y: v for y, v in new.items() if int(y) < years[0] and pts[-1][0] > dt.date(int(y), 12, 31)}
+    hist[key] = {"listed": out["listed"], "from": frm, "returns": {**done, **settled}}
 
     # 除息月份：近一年的除息事件
     if not row.get("除息"):
@@ -165,6 +215,81 @@ def analyze(row, years):
                 months.add(d.month)
         out["除息"] = "每月" if len(months) >= 9 else (
             ",".join(str(m) for m in sorted(months)) if months else "無")
+    return out
+
+
+# ---- 證交所指數（stocks.csv 的 Yahoo代號 填 TWSE:IR0001 / TWSE:IX0001）----
+TWSE_INDEX = {
+    "IR0001": ("MFI94U", 1),        # 發行量加權股價報酬指數（含息）
+    "IX0001": ("MI_5MINS_HIST", 4),  # 發行量加權股價指數（收盤）
+}
+_twse_lock = threading.Lock()
+
+
+def twse_month(ep, col, y, m):
+    """某月每日指數 [(date, value)]；證交所有流量限制，序列化並間隔呼叫。"""
+    url = "https://www.twse.com.tw/rwd/zh/TAIEX/%s?date=%04d%02d01&response=json" % (ep, y, m)
+    with _twse_lock:
+        time.sleep(1)
+        with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30) as r:
+            j = json.load(r)
+    out = []
+    for rec in j.get("data") or []:
+        ry, rm, rd = (int(x) for x in rec[0].split("/"))
+        out.append((dt.date(ry + 1911, rm, rd), float(rec[col].replace(",", ""))))
+    return out
+
+
+def analyze_twse(row, years, hist, key, cached, missing):
+    out = dict(row)
+    code = row["Yahoo代號"].split(":", 1)[1].upper()
+    if code not in TWSE_INDEX:
+        out["error"] = "不支援的指數"
+        return out
+    ep, col = TWSE_INDEX[code]
+    today = dt.date.today()
+    try:
+        cur = twse_month(ep, col, today.year, today.month)
+        if len(cur) < 2:
+            pm = (today.replace(day=1) - dt.timedelta(days=1))
+            cur = twse_month(ep, col, pm.year, pm.month) + cur
+    except Exception:
+        cur = []
+    if not cur:
+        out["error"] = "查無資料"
+        return out
+
+    last_d, last_v = cur[-1]
+    ends = dict(cached.get("ends", {}))  # 年底收盤值
+
+    def end_of(y):
+        if y == years[0]:
+            return last_v
+        if str(y) not in ends:
+            try:
+                dec = twse_month(ep, col, y, 12)
+            except Exception:
+                return None
+            if not dec:
+                return None
+            ends[str(y)] = dec[-1][1]
+        return ends[str(y)]
+
+    done = cached.get("returns", {})
+    new = year_returns([years[0]] + missing, end_of, None, None)
+    out["returns"] = {str(y): (new.get(str(y)) or done.get(str(y))) for y in years
+                      if new.get(str(y)) or done.get(str(y))}
+    settled = {y: v for y, v in new.items() if int(y) < years[0]}
+    hist[key] = {"listed": None, "from": years[-1], "returns": {**done, **settled},
+                 "ends": {y: v for y, v in ends.items() if int(y) < years[0]}}
+
+    close_ts = int(dt.datetime(last_d.year, last_d.month, last_d.day, 13, 30, tzinfo=TPE).timestamp())
+    out.update({
+        "symbol": code, "price": last_v, "chg": (last_v / cur[-2][1] - 1) * 100,
+        "date": last_d.isoformat(), "listed": None, "除息": row.get("除息") or "無",
+        "_market": {"market": "台股", "city": "台北", "ts": close_ts, "closed": True, "off": 28800},
+        "_yname": row.get("名稱"),
+    })
     return out
 
 
@@ -210,9 +335,9 @@ def finish_row(r, markets):
         markets[m["market"]] = {"ts": m["ts"], "text": market_text(m)}
 
 
-def build(rows, years):
+def build(rows, years, hist=None):
     with ThreadPoolExecutor(8) as ex:
-        results = list(ex.map(lambda r: analyze(r, years), rows))
+        results = list(ex.map(lambda r: analyze(r, years, hist), rows))
     markets = {}
     for r in results:
         finish_row(r, markets)
@@ -257,10 +382,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--years", type=int, default=DEFAULT_YEARS, help="抓取年數(含今年)")
     ap.add_argument("--csv", default=CSV_PATH)
+    ap.add_argument("--full", action="store_true", help="忽略 history.json，全部重算")
     ap.add_argument("--out", default=os.path.join(HERE, "returns.html"))
     args = ap.parse_args()
 
-    payload = build(load_rows(args.csv), get_years(args.years))
+    hist = {} if args.full else load_hist()
+    payload = build(load_rows(args.csv), get_years(args.years), hist)
+    save_hist(hist)
     for r in payload["rows"]:
         print("%-8s %-12s %s" % (r["代碼"], r["名稱"], r.get("error", "OK")))
     for m in payload["markets"].values():

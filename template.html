@@ -102,7 +102,7 @@ const cols = [
   {k:'除息', label:'除息', get:r => ({sort:r.除息 || '', text:r.除息 || '(空白)'})},
   {k:'代碼', label:'代碼', get:r => ({sort:r.代碼, text:r.代碼})},
   {k:'名稱', label:'名稱', get:r => ({sort:r.名稱, text:r.名稱})},
-  {k:'price', label:'現價', num:true, get:r => r.error ? {sort:null, text:'(無資料)'} : {sort:r.price, text:String(+r.price.toFixed(2))}},
+  {k:'price', label:'現價', num:true, get:r => r.error ? {sort:null, text:'(無資料)'} : {sort:r.price, text:r.price >= 10000 ? Math.round(r.price).toLocaleString('en-US') : String(+r.price.toFixed(2))}},
   {k:'chg', label:'最後交易<br>日漲跌', num:true, get:r => r.chg == null ? {sort:null, text:'(無資料)'} : {sort:r.chg, text:r.chg.toFixed(2) + '%'}},
   ...years.map(y => ({k:'y' + y, year:y, label:String(y), num:true, get:r => {
     const x = r.returns && r.returns[y];
@@ -357,9 +357,17 @@ function marketTextOf(m) {
   return t;
 }
 
+function histGet() { try { return JSON.parse(localStorage.getItem('etf-hist')) || {}; } catch (e) { return {}; } }
+function histSet(h) { try { localStorage.setItem('etf-hist', JSON.stringify(h)); } catch (e) {} }
+
 // 與 build.py analyze 相同的計算
 async function analyzeJS(it) {
-  const p1 = Math.floor(new Date(years[years.length - 1] - 1, 11, 1) / 1000);
+  // 已結束年度的報酬率記在瀏覽器（etf-hist），有缺的年度才抓長期資料
+  const key = it.代碼 + (it.Yahoo代號 ? '|' + it.Yahoo代號 : '');
+  const cached = histGet()[key] || {}, done = cached.returns || {};
+  const missing = years.slice(1).filter(y => !done[y]);
+  const recent = Math.floor(Date.now() / 1000) - 400 * 86400;
+  const p1 = missing.length ? Math.min(Math.floor(new Date(Math.min(...missing) - 1, 11, 1) / 1000), recent) : recent;
   const p2 = Math.floor(Date.now() / 1000) + 86400;
   let data = null, sym = null;
   for (const s of WL.symbolsFor(it)) {
@@ -403,11 +411,19 @@ async function analyzeJS(it) {
   out.chg = prev ? (out.price / prev - 1) * 100 : null;
   out.date = pts[pts.length - 1].day;
   const first = pts[0];
-  const listed = first.day > `${years[years.length - 1] - 1}-12-31` ? first : null;
+  let listed, frm;
+  if (!cached.returns || (missing.length && Math.min(...missing) < (cached.from ?? 9999))) {
+    listed = first.day > `${years[years.length - 1] - 1}-12-31` ? first : null;
+    frm = years[years.length - 1];
+  } else {
+    listed = cached.listed ? {day:cached.listed, y:+cached.listed.slice(0, 4), m:+cached.listed.slice(5, 7)} : null;
+    frm = cached.from;
+  }
   out.listed = listed ? listed.day : null;
   const lastAdj = y => { let v = null; for (const p of pts) if (p.y === y) v = p.a; return v; };
-  out.returns = {};
-  for (const y of years) {
+  const fresh = {};
+  out.returns = fresh;
+  for (const y of [years[0], ...missing]) {
     const end = lastAdj(y), prv = lastAdj(y - 1);
     if (end == null) {
       if (listed && listed.y === y + 1) out.returns[y] = {note:`${listed.y % 100}年${listed.m}月成立`};
@@ -416,6 +432,13 @@ async function analyzeJS(it) {
     }
     out.returns[y] = prv == null ? {v:(end / first.a - 1) * 100, partial:true} : {v:(end / prv - 1) * 100};
   }
+  out.returns = {};
+  for (const y of years) { const v = fresh[y] || done[y]; if (v) out.returns[y] = v; }
+  // 只記錄已結束、且資料已跨到下一年的年度；寫入前重新讀取，避免多檔同時載入互相覆蓋
+  const settled = Object.fromEntries(Object.entries(fresh).filter(([y]) => +y < years[0] && out.date > `${y}-12-31`));
+  const H = histGet();
+  H[key] = {listed:out.listed, from:frm, returns:{...done, ...settled}};
+  histSet(H);
   if (!it.除息) {
     const cutoff = new Date(new Date(out.date) - 380 * 864e5);
     const months = new Set();
