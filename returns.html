@@ -39,7 +39,9 @@
   th .f { padding:0 4px; border:1px solid #2c7a3f; background:#2c7a3f; color:#fff; border-radius:3px; font-size:11px; cursor:pointer; line-height:16px; }
   th .f.on { background:#f0b400; border-color:#f0b400; }
   td.c { text-align:center; } td.r { text-align:right; font-variant-numeric:tabular-nums; }
+  tbody tr:nth-child(even) td { background:#f5f5f5; }
   tr.主動 td { background:var(--active); } tr.個股-穩 td { background:#e3f0e3; }
+  tr.主動:nth-child(even) td { background:#e4d3e4; } tr.個股-穩:nth-child(even) td { background:#d3e7d3; }
   tr.picked td { background:#fff3c4 !important; }
   tbody tr:hover td { background:#fff7d6; }
   .note { color:#888; font-style:italic; font-size:12px; }
