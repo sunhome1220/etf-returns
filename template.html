@@ -104,8 +104,8 @@
   <b>新增代碼</b>
   <input id="ac" placeholder="如 2330、QQQ、VWRA.L" size="16">
   <input id="an" placeholder="名稱（選填）" size="12">
-  <select id="ar"><option value="">區（自動）</option><option>台灣</option><option>美國</option><option>陸港</option><option>全球</option></select>
-  <input id="at" list="cats" placeholder="類（預設 自選）" size="10"><datalist id="cats"></datalist>
+  <select id="ar"><option value="">區域（自動）</option><option>台灣</option><option>美國</option><option>陸港</option><option>全球</option></select>
+  <input id="at" list="cats" placeholder="類別（預設 自選）" size="10"><datalist id="cats"></datalist>
   <button id="addBtn">加入</button>
   <button id="restore" style="display:none"></button>
   <a href="watchlist.html" class="manage">管理我的追蹤清單 →</a>
@@ -143,8 +143,8 @@ const fmtPct = v => v.toFixed(Math.abs(v) >= 100 ? 2 : 1) + '%';
 
 // 每個欄位：sort = 排序值，text = 顯示/篩選文字
 const cols = [
-  {k:'區', label:'區', get:r => ({sort:r.區, text:r.區})},
-  {k:'類', label:'類', get:r => ({sort:r.類, text:r.類})},
+  {k:'區', label:'區域', get:r => ({sort:r.區, text:r.區})},
+  {k:'類', label:'類別', get:r => ({sort:r.類, text:r.類})},
   {k:'除息', label:'除息', get:r => ({sort:r.除息 || '', text:r.除息 || '(空白)'})},
   {k:'代碼', label:'代碼', get:r => ({sort:r.代碼, text:r.代碼})},
   {k:'名稱', label:'名稱', get:r => ({sort:r.名稱, text:r.名稱})},
