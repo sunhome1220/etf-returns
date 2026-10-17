@@ -70,8 +70,8 @@
       <b>新增</b>
       <input id="ac" placeholder="代碼，如 2330、QQQ、VWRA.L" size="22">
       <input id="an" placeholder="名稱（選填）" size="14">
-      <select id="ar"><option value="">區（自動）</option></select>
-      <input id="at" list="cats" placeholder="類（預設 自選）" size="10">
+      <select id="ar"><option value="">區域（自動）</option></select>
+      <input id="at" list="cats" placeholder="類別（預設 自選）" size="10">
       <button id="addBtn" class="primary">加入</button>
       <span id="msg"></span>
     </div>
@@ -101,7 +101,7 @@
 <script>
 const REGIONS = ['台灣', '美國', '陸港', '全球'];
 const COLS = [
-  {k:'代碼', label:'代碼'}, {k:'名稱', label:'名稱'}, {k:'區', label:'區'}, {k:'類', label:'類'},
+  {k:'代碼', label:'代碼'}, {k:'名稱', label:'名稱'}, {k:'區', label:'區域'}, {k:'類', label:'類別'},
   {k:'source', label:'來源'}, {k:'', label:'操作'},
 ];
 let BASE = [];
