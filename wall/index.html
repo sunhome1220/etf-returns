@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="manifest" href="manifest.json">
+<title>拼接大螢幕</title>
+<style>
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:#000; color:#eee; overflow:hidden;
+    font:15px/1.5 "Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif;
+    -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+  #wall { position:fixed; inset:0; width:100vw; height:100vh; display:block; touch-action:none; }
+  .hidden { display:none !important; }
+
+  /* 進入畫面 */
+  #join { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:16px; background:#111; z-index:10; }
+  .box { width:100%; max-width:380px; background:#1d1d1d; border:1px solid #333; border-radius:10px; padding:22px; }
+  .box h1 { margin:0 0 4px; font-size:22px; }
+  .box p { margin:0 0 16px; color:#999; font-size:13px; }
+  input, select, textarea, button { font:inherit; color:#eee; background:#2a2a2a; border:1px solid #444; border-radius:6px; padding:8px 10px; }
+  input[type=color] { padding:2px; width:44px; height:36px; }
+  input[type=range] { padding:0; }
+  button { cursor:pointer; background:#2f6fd6; border-color:#2f6fd6; color:#fff; }
+  button.sec { background:#2a2a2a; border-color:#555; color:#eee; }
+  button:active { filter:brightness(.85); }
+  #roomInput { width:100%; font-size:24px; letter-spacing:4px; text-align:center; text-transform:uppercase; margin-bottom:12px; }
+  #joinBtn { width:100%; font-size:17px; padding:12px; }
+  #joinMsg { margin-top:12px; color:#f0b44c; font-size:13px; min-height:20px; }
+
+  /* 管理面板 */
+  #panel { position:fixed; inset:0; overflow:auto; background:#111; z-index:5; padding:12px 16px 40px; -webkit-user-select:text; user-select:text; }
+  #panel .wrap { max-width:760px; margin:0 auto; }
+  #panel h2 { font-size:16px; margin:18px 0 8px; color:#8fb8ff; }
+  .top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .top .room { font-size:22px; font-weight:700; letter-spacing:3px; }
+  .badge { font-size:12px; background:#2f6fd6; padding:2px 8px; border-radius:10px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:6px 0; }
+  .row label { color:#bbb; font-size:14px; }
+  textarea { width:100%; min-height:70px; resize:vertical; }
+  #link { flex:1; min-width:0; font-size:13px; }
+  #preview { width:100%; background:#000; border:1px solid #333; border-radius:6px; display:block; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td, th { border-bottom:1px solid #2a2a2a; padding:5px 4px; text-align:left; }
+  th { color:#999; font-weight:normal; font-size:12px; }
+  td input[type=number] { width:64px; padding:4px; }
+  td button { padding:3px 8px; }
+  .muted { color:#888; font-size:12px; }
+  .seg { display:inline-flex; border:1px solid #555; border-radius:6px; overflow:hidden; }
+  .seg button { border:0; border-radius:0; background:#2a2a2a; color:#ccc; padding:7px 14px; }
+  .seg button.on { background:#2f6fd6; color:#fff; }
+  #sendBtn { font-size:17px; padding:10px 22px; }
+
+  /* 顯示端狀態 */
+  #status { position:fixed; left:8px; top:8px; z-index:3; font-size:12px; padding:3px 8px; border-radius:10px;
+    background:rgba(0,0,0,.55); color:#ccc; transition:opacity .6s; pointer-events:none; }
+  #status.fade { opacity:0; }
+  #gear { position:fixed; right:10px; bottom:10px; z-index:4; width:44px; height:44px; border-radius:22px; font-size:22px; padding:0;
+    background:rgba(40,40,40,.7); border:1px solid #555; }
+  #waitMsg { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; z-index:2;
+    color:#999; padding:20px; pointer-events:none; font-size:16px; }
+</style>
+</head>
+<body>
+<canvas id="wall"></canvas>
+<div id="waitMsg" class="hidden"></div>
+<div id="status" class="hidden"></div>
+<button id="gear" class="hidden" title="控制台">⚙</button>
+
+<div id="join">
+  <div class="box">
+    <h1>拼接大螢幕</h1>
+    <p>多支手機、平板排在一起組成一個大畫面。輸入相同的房間代碼加入；第一個進入房間的人是管理者。</p>
+    <input id="roomInput" maxlength="12" autocomplete="off" placeholder="房間代碼">
+    <button id="joinBtn">進入</button>
+    <div id="joinMsg"></div>
+  </div>
+</div>
+
+<div id="panel" class="hidden">
+  <div class="wrap">
+    <div class="top">
+      <span class="badge">管理者</span>
+      <span>房間</span><span class="room" id="roomLabel"></span>
+      <span class="muted" id="netState"></span>
+    </div>
+    <div class="row">
+      <input id="link" readonly>
+      <button class="sec" id="copyBtn">複製連結</button>
+      <button class="sec hidden" id="shareBtn">分享</button>
+    </div>
+    <div class="muted">其他手機、平板開啟此連結（或輸入同一房間代碼）即加入。同步完成後即使斷網也會持續播放。</div>
+
+    <h2>顯示內容</h2>
+    <div class="row">
+      <div class="seg" id="typeSeg"><button data-v="text" class="on">文字</button><button data-v="image">圖片</button></div>
+    </div>
+    <div id="textOpts">
+      <textarea id="text" placeholder="輸入要顯示的文字（固定模式可換行）">歡迎光臨</textarea>
+      <div class="row">
+        <div class="seg" id="modeSeg"><button data-v="static" class="on">固定</button><button data-v="marquee">跑馬燈</button></div>
+        <span id="speedBox" class="row hidden" style="margin:0"><label>速度</label><input type="range" id="speed" min="1" max="20" value="6"><span id="speedVal">6</span></span>
+      </div>
+      <div class="row">
+        <label>文字色</label><input type="color" id="color" value="#ffdd00">
+        <label>背景色</label><input type="color" id="bg" value="#000000">
+        <label><input type="checkbox" id="bold" checked> 粗體</label>
+        <label>字級</label><input type="range" id="size" min="20" max="150" value="100"><span id="sizeVal">100%</span>
+      </div>
+    </div>
+    <div id="imageOpts" class="hidden">
+      <div class="row"><input type="file" id="file" accept="image/*"></div>
+      <div class="row">
+        <label>縮放</label>
+        <select id="fit"><option value="contain">完整顯示</option><option value="cover">填滿裁切</option><option value="fill">拉伸填滿</option></select>
+        <label>背景色</label><input type="color" id="bg2" value="#000000">
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="sendBtn">送出顯示</button>
+      <label><input type="checkbox" id="identify"> 顯示編號（排放手機時用）</label>
+    </div>
+
+    <h2>排列預覽</h2>
+    <canvas id="preview" height="200"></canvas>
+    <div class="muted" id="layoutInfo"></div>
+    <div class="row">
+      <label>列數</label><select id="rows"><option value="0">自動</option></select>
+      <label><input type="checkbox" id="autoSort" checked> 依尺寸自動排序</label>
+      <label>邊框間距</label><input type="number" id="gap" value="0" min="0" max="200" style="width:70px"><span class="muted">px</span>
+    </div>
+    <div class="muted">跑馬燈建議手機橫放並選「1 列」；邊框間距可補償手機邊框，讓文字跨接縫時更連貫。</div>
+
+    <h2>裝置（<span id="devCount">0</span>）</h2>
+    <div class="row"><label><input type="checkbox" id="selfShow"> 本機也當作螢幕之一</label>
+      <button class="sec hidden" id="viewBtn">切換到本機畫面</button></div>
+    <table>
+      <thead><tr><th>#</th><th>裝置</th><th>畫面尺寸</th><th>尺寸校正%</th><th>順序</th></tr></thead>
+      <tbody id="devList"></tbody>
+    </table>
+    <div class="muted" style="margin-top:6px">尺寸校正：不同廠牌螢幕的實際大小比例不同，若接縫處對不齊，可調整該裝置的百分比（放大數值 = 該裝置在大畫面中佔更大面積）。</div>
+  </div>
+</div>
+
+<script src="peerjs.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

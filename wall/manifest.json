@@ -1,0 +1,8 @@
+{
+  "name": "拼接大螢幕",
+  "short_name": "拼接螢幕",
+  "start_url": "./",
+  "display": "fullscreen",
+  "background_color": "#000000",
+  "theme_color": "#000000"
+}
