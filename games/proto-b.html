@@ -20,6 +20,7 @@
   button { background:#e8c88a; color:#2b2118; border:0; border-radius:4px; padding:6px 12px; font:inherit; cursor:pointer; }
   button:disabled { opacity:.35; cursor:default; }
   #fire { background:#e74c3c; color:#fff; font-weight:700; }
+  #undo { background:#5b7fa6; color:#fff; font-weight:700; }
   #quick.on { background:#f1c40f; font-weight:700; }
   #quick:not(.on) { opacity:.6; }
   header, header * { white-space:nowrap; }
@@ -86,7 +87,7 @@
   <span id="turn"></span>
   <span><button id="quick" title="快速模式：點綠點立即出發，不需確認">⚡快速</button> <button id="mute" title="音效開關">🔊</button> <button id="menu" title="對戰模式／重新開始">☰</button></span>
 </header>
-<div id="bar"><div id="info"></div><button id="fire" hidden>出發</button><button id="skip" disabled>不射擊</button></div>
+<div id="bar"><div id="info"></div><button id="fire" hidden>出發</button><button id="undo" hidden>↩ 取消移動</button><button id="skip" disabled>不射擊</button></div>
 <canvas id="cv"></canvas>
 <div id="perksBar"><button id="perkBtn" hidden>🃏 我的強化</button><span id="perks"></span></div>
 <table id="legend"></table>
@@ -183,7 +184,7 @@ const LAYOUT = [['K',4,9],['G',3,9],['G',5,9],['R',0,9],['R',8,9],['N',1,9],['N'
                 ['P',0,6],['P',2,6],['P',4,6],['P',6,6],['P',8,6]];
 
 let pieces, turn, state, mover, timer, fx, winner, targets;
-let moved = false, firedPiece = null, sel = null;   // moved：本回合已移動；sel：目前選取的棋子 {p, moves 可走的點, dest 目的地, scan 原地可攻擊}
+let moved = false, firedPiece = null, sel = null, origin = null;   // moved：本回合已移動；sel：目前選取的棋子 {p, moves 可走的點, dest 目的地, scan 原地可攻擊}
 // 對戰模式：local＝同裝置並排、face＝同裝置面對面（黑方文字倒轉）、online＝兩台裝置連線
 let mode = 'local', mySide = 0, conn = null, pendingEnd = null;
 const online = () => mode === 'online';
@@ -633,7 +634,8 @@ const flies = T => T.proj === 'rocket' || T.proj === 'shell';   // 會被防空�
 const reloadMsg = p => p.T.aa ? `${p.T.n[p.s]}防空冷卻中，對方接下來 ${p.cd} 次攻擊攔截不了。` : `${p.T.n[p.s]}${p.T.w}裝填中，還要 ${p.cd} 回合${p.T.alt ? '，期間改用步槍' : '才能再射擊'}。`
 function setSkip(on) {
   $('skip').disabled = !on;
-  $('skip').textContent = state === 'target' && moved ? '不射擊' : '取消';
+  $('skip').textContent = state === 'target' && moved ? (targets.some(t => t.ok) ? '不射擊' : '結束回合') : '取消';
+  $('undo').hidden = !(state === 'target' && moved && origin);
   $('fire').hidden = !(state === 'select' && sel && sel.dest);
 }
 function onStop() {
@@ -641,46 +643,74 @@ function onStop() {
   if (online() && !myTurn()) { if (pendingEnd) applyEnd(); else state = 'wait'; return; }
   if (mover.hp <= 0) { state = 'fire'; timer = 0.6; return; }
   targets = scan(mover);
+  const manual = !(mode === 'ai' && turn === aiSide());
   if (targets.some(t => t.ok)) {
     state = 'target'; setSkip(true);
-    setMsg(`點選黃色準星的敵人開火（${mover.T.n[mover.s]}・${mover.T.w}・準星旁為預估傷害），` +
-           (moved ? '或按「不射擊」。' : '或按「取消」／點其他己方棋子改操作。'));
+    setMsg(`圓圈是${mover.T.n[mover.s]}的攻擊範圍，點黃色準星的敵人開火（準星旁為預估傷害）；` +
+           (moved ? '不滿意可按「取消移動」換別的棋，或按「不射擊」結束回合。' : '或按「取消」／點其他己方棋子改操作。'));
+  } else if (moved && manual && !quick) {   // 沒有目標也停下來：看過攻擊範圍後可取消移動
+    state = 'target'; setSkip(true);
+    setMsg(`圓圈是${mover.T.n[mover.s]}的攻擊範圍，` + (mover.T.aa && !targets.length ? '範圍內沒有敵人，藍圈內的火箭和砲彈會被攔截。' : mover.T.guard ? '仕不會攻擊，帥被直射時會走到射線上擋子彈。' : mover.cd > 0 && targets.length ? reloadMsg(mover) + '' : '範圍內沒有可攻擊的敵人。') + '可按「取消移動」換別的棋，或按「結束回合」。');
   } else if (!moved) {   // 原地選取但沒東西可打：不浪費回合，回到選棋
     const p = mover;
-    cancelSelect((p.T.aa ? `${p.T.n[p.s]}射程內沒有敵人（相鄰或田字對角點），負責攔截飛來的火箭和砲彈。` : p.T.guard ? `${p.T.n[p.s]}不會攻擊，負責替帥擋子彈。` : p.cd > 0 && targets.length ? reloadMsg(p) : '射程內沒有可攻擊的敵人，') + '請選擇移動位置或換別的棋子。');
+    cancelSelect((p.T.aa ? `${p.T.n[p.s]}射程內沒有敵人（相鄰或田字對角點），負責攔截飛來的火箭和砲彈。` : p.T.guard ? `${p.T.n[p.s]}不會攻擊，帥被直射時會走到射線上擋子彈。` : p.cd > 0 && targets.length ? reloadMsg(p) : '射程內沒有可攻擊的敵人，') + '請選擇移動位置或換別的棋子。');
   } else {
     state = 'fire'; timer = 0.9;
-    setMsg(mover.T.aa && !targets.length ? `${mover.T.n[mover.s]}就定位，藍圈內的火箭和砲彈會被攔截。` : mover.T.guard ? `${mover.T.n[mover.s]}就定位，守在帥身邊。` : mover.cd > 0 && targets.length ? reloadMsg(mover)
+    setMsg(mover.T.aa && !targets.length ? `${mover.T.n[mover.s]}就定位，藍圈內的火箭和砲彈會被攔截。` : mover.T.guard ? `${mover.T.n[mover.s]}就定位。` : mover.cd > 0 && targets.length ? reloadMsg(mover)
            : targets.length ? '射程內的敵人都被擋住或太近，無法開火。' : '射程內沒有敵人。');
   }
+}
+// 移動後反悔：棋子退回出發點（含升官、空投），回到選棋；連線時通知對方同步
+function applyUndo(o) {
+  const p = o.p;
+  fx = fx.filter(f => f.k !== 'drop' && !(f.k === 'txt' && String(f.txt).includes('空投'))); p.drop = 0;
+  Object.assign(p, { x: o.x, y: o.y, hd: o.hd, T: o.T, hp: o.hp, vx: 0, vy: 0 });
+}
+function undoMove() {
+  const o = origin;
+  if (state !== 'target' || !moved || !o) return false;
+  applyUndo(o);
+  send({ t: 'undo', i: pieces.indexOf(o.p), x: o.x, y: o.y, hd: o.hd, pr: o.T.id === 'P2' ? 1 : 0, hp: o.hp });
+  moved = false; mover = null; origin = null; targets = []; sel = null; state = 'aim'; setSkip(false);
+  SFX.play('click');
+  return true;
 }
 // 取消原地選取，回到選棋
 function cancelSelect(msg = '已取消，請重新選擇棋子。') {
   state = 'aim'; mover = null; targets = []; setSkip(false); setMsg(msg);
 }
-// 帥被直接攻擊時，相鄰（含斜角）且還活著的士中，離攻擊方最近的那隻衝出來擋
-function guardFor(k, from) {
-  if (k.t !== 'K') return null;
-  const gs = alive().filter(g => g.s === k.s && g.T.guard && Math.hypot(g.x - k.x, g.y - k.y) <= 1.5 * C + 1);
-  return gs.sort((u, v) => Math.hypot(u.x - from.x, u.y - from.y) - Math.hypot(v.x - from.x, v.y - from.y))[0] || null;
+// 帥被直射（非炮、非飛彈）時：仕的某個合法落點剛好落在射線上，就自動走過去擋；沒有這種落點就擋不了
+function guardBlock(k, from, T) {
+  if (k.t !== 'K' || flies(T)) return null;
+  const dx = k.x - from.x, dy = k.y - from.y, d2 = dx * dx + dy * dy || 1;
+  let best = null;
+  for (const g of alive()) {
+    if (g.s !== k.s || !g.T.guard) continue;
+    for (const [x, y] of movesFor(g)) {
+      const t = ((x - from.x) * dx + (y - from.y) * dy) / d2;
+      if (t <= 0 || t >= 1) continue;
+      const off = Math.hypot(x - (from.x + t * dx), y - (from.y + t * dy));
+      if (off < R * 0.9 && (!best || off < best.off)) best = { g, x, y, off };
+    }
+  }
+  return best;
 }
-// 士衝到帥前方（攻擊方向）的擋子彈位置；ox/oy 為畫面上的位移，實際座標不變
-function dashGuard(g, k, from) {
-  const d = Math.hypot(from.x - k.x, from.y - k.y) || 1;
-  g.dash = { tx: k.x + (from.x - k.x) / d * R * 1.7, ty: k.y + (from.y - k.y) / d * R * 1.7, k: 0, back: false };
+// 仕走到擋子彈的位置（永久換位）；ox/oy 為畫面上的滑動位移，實際座標立刻更新
+function slideGuard(bl) {
+  const g = bl.g, ox = g.x - bl.x, oy = g.y - bl.y;
+  g.sl = { ox, oy, k: 0 }; g.ox = ox; g.oy = oy; g.x = bl.x; g.y = bl.y;
   fx.push({ k: 'txt', x: g.x, y: g.y - R - 6, txt: '護駕！', t: 1, T: 1, col: '#2f6fb5', side: g.s });
   SFX.play('click');
-  return [g.dash.tx, g.dash.ty];
 }
 const visX = p => p.x + (p.ox || 0), visY = p => p.y + (p.oy || 0);   // 畫面上的位置（含衝出位移）
 // 開火：車頭轉向目標、槍口火光、彈體飛行，命中時才扣血（impact）
 function shoot(a, b) {
   const W = weaponFor(a, b); a.fireT = W !== a.T ? W : null;   // 近戰／冷卻中改用步槍
-  const guard = (a.fireT || a.T).proj !== 'pellets' && guardFor(b, a);   // 霰彈在 shootAt 裡逐發處理
-  if (guard) {   // 士衝出來擋：彈道終點改到士擋下的位置，傷害由士承受
-    const [ix, iy] = dashGuard(guard, b, a);
-    setMsg(`${guard.T.n[guard.s]}衝出來替${b.T.n[b.s]}擋子彈！`);
-    return shootAt(a, guard, ix, iy, b);
+  const bl = guardBlock(b, a, a.fireT || a.T);
+  if (bl) {   // 仕走到射線上擋：單發武器改打仕；霰彈則由彈丸自然打到擋在前面的仕
+    slideGuard(bl);
+    setMsg(`${bl.g.T.n[bl.g.s]}走到射線上替${b.T.n[b.s]}擋子彈！`);
+    if ((a.fireT || a.T).proj !== 'pellets') return shootAt(a, bl.g, bl.g.x, bl.g.y, b);
   }
   return shootAt(a, b, b.x, b.y, b);
 }
@@ -691,28 +721,21 @@ function shootAt(a, b, tx, ty, aim) {
   if (T.reload && !T.aa) { a.cd = T.reload; firedPiece = a; }
   SFX.play(T.snd);
   if (b === aim) setMsg(`${T.n[a.s]} 用${T.w}攻擊 ${b.T.n[b.s]}！`);
-  const base = { x1: mx, y1: my, x2: tx, y2: ty, dir, side: a.s };
+  const base = { x1: mx, y1: my, x2: tx, y2: ty, dir, side: a.s }, nt = b !== aim ? '（替帥擋下）' : '';
   if (T.proj === 'burst') {            // 機槍：四發連射，最後一發結算傷害
     for (let i = 0; i < 4; i++)
       fx.push({ ...base, k: 'bullet', x2: tx + rnd(7), y2: ty + rnd(7), t: 0.12, T: 0.12, delay: i * 0.07 + 0.001,
                 start: () => { muzzle(mx, my, dir, false); a.recoil = 1; },
-                done: i === 3 ? () => impact(a, b) : () => emit(tx, ty, 4, { k: 'spark', sp: 160, life: 0.2, size: 2, col: '#ffe066' }) });
+                done: i === 3 ? () => impact(a, b, undefined, nt) : () => emit(tx, ty, 4, { k: 'spark', sp: 160, life: 0.2, size: 2, col: '#ffe066' }) });
   } else if (T.proj === 'bullet') {
     muzzle(mx, my, dir, false);
-    fx.push({ ...base, k: 'bullet', t: 0.12, T: 0.12, done: () => impact(a, b) });
+    fx.push({ ...base, k: 'bullet', t: 0.12, T: 0.12, done: () => impact(a, b, undefined, nt) });
   } else if (T.proj === 'rocket') {
     muzzle(mx, my, dir, true);
     fx.push(intercept(a, b, aim, { ...base, k: 'rocket', t: 0.45, T: 0.45, done: () => impact(a, b) }));
   } else if (T.proj === 'pellets') {   // 霰彈：扇形彈丸同時飛出
     muzzle(mx, my, dir, true); shake = Math.max(shake, 3);
     const { rays, count } = shotgunSim(a, aim);
-    for (const [p, n] of [...count]) {   // 打到帥的彈丸由相鄰的士衝出來擋
-      const guard = guardFor(p, a);
-      if (!guard) continue;
-      const [ix, iy] = dashGuard(guard, p, a);
-      for (const r of rays) if (r.p === p) { r.x = ix; r.y = iy; r.p = guard; }
-      count.delete(p); count.set(guard, (count.get(guard) || 0) + n);
-    }
     fx.push({ k: 'pellets', x1: a.x, y1: a.y, rays, side: a.s, dir, t: 0.14, T: 0.14, done: () => {
       for (const r of rays) emit(r.x, r.y, 2, { k: 'spark', sp: 120, life: 0.18, size: 2, col: '#ffe066' });
       if (!count.size) { setMsg('霰彈全被擋下，沒有打中敵人。'); timer = Math.max(timer, 0.6); }
@@ -741,7 +764,6 @@ function intercept(a, b, aim, f) {
     emit(ix, iy, 24, { k: 'spark', sp: 260, life: 0.45, size: 2.5, col: '#ffd23f' });
     emit(ix, iy, 8, { k: 'smoke', sp: 40, life: 1, size: 11, col: '#777' });
     SFX.play('boom', false); shake = Math.max(shake, 4);
-    if (b.dash) b.dash.back = true;   // 衝出來擋的士退回
     fx.push({ k: 'txt', x: ix, y: iy - 10, txt: '攔截！', t: 1.2, T: 1.2, col: '#2f6fb5', side: e.s });
     setMsg(`${e.T.n[e.s]}攔截了${a.T.n[a.s]}的${a.T.proj === 'rocket' ? '火箭' : '砲彈'}！（${e.T.n[e.s]}冷卻中：對方接下來 ${e.T.reload} 次攻擊攔截不了）`);
     timer = Math.max(timer, 0.9);
@@ -751,7 +773,6 @@ function intercept(a, b, aim, f) {
 function impact(a, b, dmg = (a.fireT || a.T).dmg, note = '') {
   const T = a.fireT || a.T, heavy = T.proj === 'rocket' || T.proj === 'shell';
   const bx = visX(b), by = visY(b);
-  if (b.dash && !note.includes('波及')) { b.dash.back = true; note = note || '（替帥擋下）'; }
   b.hp = Math.max(0, b.hp - dmg); b.flash = 0.35;
   fx.push({ k: 'txt', x: bx, y: by - R, txt: '-' + hearts(dmg), t: 1, T: 1, side: b.s });
   if (b.hp <= 0) { explode(bx, by, true); SFX.play('boom', true); }
@@ -814,12 +835,11 @@ function update(dt) {
   for (const p of pieces) {
     p.flash = Math.max(0, p.flash - dt); p.recoil = Math.max(0, p.recoil - dt * 6);
     if (p.lock) { p.lock.t -= dt; if (p.lock.t <= 0) p.lock = null; }
-    if (p.dash) {   // 士衝出去（0.1 秒）→ 擋下後退回（0.3 秒）
-      const d = p.dash;
-      d.k = d.back ? Math.max(0, d.k - dt / 0.3) : Math.min(1, d.k + dt / 0.1);
-      const e = d.k * (2 - d.k);
-      p.ox = (d.tx - p.x) * e; p.oy = (d.ty - p.y) * e;
-      if (d.back && d.k <= 0) { p.dash = null; p.ox = p.oy = 0; }
+    if (p.sl) {   // 仕滑到擋子彈的位置（0.1 秒）
+      const d = p.sl; d.k = Math.min(1, d.k + dt / 0.1);
+      const e = 1 - d.k * (2 - d.k);
+      p.ox = d.ox * e; p.oy = d.oy * e;
+      if (d.k >= 1) { p.sl = null; p.ox = p.oy = 0; }
     }
   }
   for (const f of fx) {
@@ -862,7 +882,7 @@ function selectPiece(p) {
   setMsg(!sel.moves.length && !atk ? `${nm}沒有可走的位置，也沒有可攻擊的目標，請換別的棋子。`
     : `${nm}：` + (sel.moves.length ? '點綠點移動' + (oneStep(p) ? '（每次只能走一格）' : p.T.aa ? (fallbackMode(p, sel.moves) ? '（田字走不了，改走一步）' : '（走田字，象眼被塞就過不去）') : p.T.knight ? (fallbackMode(p, sel.moves) ? '（日字走不了，改走一步）' : '（走日字，蹩馬腳不能走）') : '') : '沒有可走的位置') +
       (atk ? '，或點黃色準星原地攻擊' : '') + '；點別處取消。' +
-      (p.T.aa ? (p.cd > 0 ? `（防空冷卻中，對方接下來 ${p.cd} 次攻擊攔截不了；近戰不受影響）` : '（藍圈內的火箭和砲彈會被自動攔截）') : p.T.knight ? (p.cd > 0 ? `（火箭裝填中還要 ${p.cd} 回合；近戰可用步槍）` : '（火箭只能打日字位置；近戰用步槍 1 心）') : p.T.guard ? '（九宮內斜走一格；在帥旁邊時會替帥擋子彈）' : p.cd > 0 ? `（裝填中還要 ${p.cd} 回合）` : ''));
+      (p.T.aa ? (p.cd > 0 ? `（防空冷卻中，對方接下來 ${p.cd} 次攻擊攔截不了；近戰不受影響）` : '（藍圈內的火箭和砲彈會被自動攔截）') : p.T.knight ? (p.cd > 0 ? `（火箭裝填中還要 ${p.cd} 回合；近戰可用步槍）` : '（火箭只能打日字位置；近戰用步槍 1 心）') : p.T.guard ? '（九宮內斜走一格；帥被直射時，若有落點在射線上會自動走去擋）' : p.cd > 0 ? `（裝填中還要 ${p.cd} 回合）` : ''));
 }
 function cancelSel(msg = '已取消，請重新選擇棋子。') {
   sel = null; state = 'aim'; setSkip(false); setMsg(msg);
@@ -871,6 +891,7 @@ const destMsg = () => '已選目的地：按「出發」或再點一次目的地
 // 出發：算出剛好停在目的地的初速，車子直線開過去
 function go([x, y]) {
   const p = sel.p, ex = x - p.x, ey = y - p.y, d = Math.hypot(ex, ey), v = speedFor(p, ex / d, ey / d, d);
+  origin = { p, x: p.x, y: p.y, hd: p.hd, T: p.T, hp: p.hp };   // 記下出發前的狀態，讓玩家可取消移動
   sel = null; mover = p; moved = true;
   p.vx = ex / d * v; p.vy = ey / d * v; p.hd = Math.atan2(ey, ex);
   SFX.play('launch', Math.min(1, d / (5 * C)));
@@ -887,12 +908,13 @@ cv.addEventListener('pointerdown', e => {
   SFX.init();
   if (state === 'over') { restart(); return; }
   if (!myTurn()) { setMsg(mode === 'ai' ? '電腦思考中…' : '還沒輪到你，等待對手操作…'); return; }
-  if (state === 'target') {   // 移動後：點準星開火，或按「不射擊」
+  const own = alive().find(q => q.s === turn && near(q.x, q.y));
+  if (state === 'target') {   // 移動後：點準星開火；點己方棋子＝取消移動並改選；或按「不射擊」
     const t = targets.find(t => t.ok && near(t.p.x, t.p.y, R + 8));
     if (t) fireAt(t.p);
+    else if (moved && own && undoMove()) selectPiece(own);
     return;
   }
-  const own = alive().find(q => q.s === turn && near(q.x, q.y));
   if (state === 'select') {
     const p = sel.p;
     const t = !sel.dest && sel.scan.find(t => t.ok && near(t.p.x, t.p.y, R + 8));
@@ -909,6 +931,7 @@ cv.addEventListener('pointerdown', e => {
   if (state === 'aim' && own) selectPiece(own);
 });
 $('fire').onclick = () => { if (state === 'select' && sel.dest) go(sel.dest); };
+$('undo').onclick = () => { if (undoMove()) setMsg('已取消移動，請重新選擇棋子。'); };
 $('skip').onclick = () => {
   if (state === 'select') { cancelSel(); return; }
   if (state !== 'target') return;
@@ -919,7 +942,7 @@ $('skip').onclick = () => {
 addEventListener('keydown', e => {
   if (e.key === 'Enter' && state === 'select' && sel.dest) go(sel.dest);
   else if (e.key === 'Escape' && state === 'select') cancelSel();
-  else if (e.key === 'Escape' && state === 'target' && !moved) cancelSelect();
+  else if (e.key === 'Escape' && state === 'target') { if (moved) { if (undoMove()) setMsg('已取消移動，請重新選擇棋子。'); } else cancelSelect(); }
 });
 
 $('mute').textContent = SFX.muted ? '🔇' : '🔊';
@@ -1132,8 +1155,8 @@ function marks(list, T, ghost) {
       line(x, y - R - 12, x, y - R - 2); line(x, y + R + 2, x, y + R + 12);
       if (t.est) {   // 預估傷害
         ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3;
-        const gd = guardFor(t.p, mover || (sel && sel.p) || t.p), aa = Tt && flies(Tt) && interceptorFor(t.p.s, x, y);
-        textAt(aa ? '✈ 會被攔截' : gd ? '🛡 仕擋' : '-' + hearts(t.est), x, y, -R - 30, textAng(turn), gd || aa ? '#2f6fb5' : '#e8202a', '#fff');
+        const gd = guardBlock(t.p, state === 'select' && sel ? (sel.dest ? { x: sel.dest[0], y: sel.dest[1] } : sel.p) : mover || t.p, Tt), aa = Tt && flies(Tt) && interceptorFor(t.p.s, x, y);
+        textAt(aa ? '✈ 會被攔截' : gd ? '🛡 仕會擋' : '-' + hearts(t.est), x, y, -R - 30, textAng(turn), gd || aa ? '#2f6fb5' : '#e8202a', '#fff');
       }
     } else {
       ctx.strokeStyle = '#7778'; ctx.lineWidth = 2; circle(x, y, R + 5); ctx.stroke();
@@ -1278,10 +1301,6 @@ function draw() {
     rangeRing(mover, mover.x, mover.y);
     if (!moved) { circle(mover.x, mover.y, R + 6); ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 3; ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]); }
   }
-  for (const k of alive()) if (k.t === 'K')   // 護衛連線：帥與旁邊的士
-    for (const g of alive()) if (g.s === k.s && g.T.guard && Math.hypot(g.x - k.x, g.y - k.y) <= 1.5 * C + 1) {
-      ctx.strokeStyle = '#2f6fb588'; ctx.lineWidth = 4; ctx.setLineDash([2, 5]); line(k.x, k.y, g.x, g.y); ctx.setLineDash([]);
-    }
   for (const p of alive()) drawPiece(p);
   marks(state === 'target' ? targets : preview, markT, ghost);
   for (const f of fx) if (f.k !== 'txt') drawProj(f);
@@ -1313,10 +1332,10 @@ function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; dr
 $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動(格)</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
   Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${T.knight ? '日字' : T.aa ? '田字' : T.guard ? '斜 1' : T.dist >= 9 * C ? '不限' : (T.dist / C).toFixed(1)}</td>` +
     `<td>${T.guard ? '護衛' : T.aa ? '手槍 ' + (T.melee / C).toFixed(1) + '／田字／攔截 ' + (T.aa / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${T.guard ? '-' : hearts(T.dmg)}</td>` +
-    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；走法同車；只能打同一橫線／直線上、距離 4～5.2 格的目標；沒有冷卻，但近距離毫無辦法` : T.guard ? '限九宮斜走一格；帥被攻擊時衝出來替帥擋下（炮的波及擋不住）' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（攔截後冷卻：對方接下來 ${T.reload} 次攻擊攔截不了）；手槍可打相鄰與田字對角點的敵人；走田字（象眼被塞就過不去；田字走不了時改走一步）` : T.line ? '走法如傳統象棋的車：橫線／直線不限距離（不能穿過棋子）；機槍只能打同一橫線／直線上的目標（比炮短 1 格），直射會被擋' : T.knight ? '走日字（可跳過棋子），蹩馬腳不能走；日字都走不了時改走一步；火箭只能打日字位置、可被相攔截；近戰隨時可用步槍（1 心）' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛；可前進或橫移，不能往後退' : '直射，會被擋'}${T.alt && !T.indirect ? `；射後裝填 ${T.reload} 回合（期間改用步槍）` : ''}</td></tr>`).join('');
+    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；走法同車；只能打同一橫線／直線上、距離 4～5.2 格的目標；沒有冷卻，但近距離毫無辦法` : T.guard ? '限九宮斜走一格；帥被直射（非炮、非火箭）時，若仕的某個落點剛好在射線上，會自動走過去擋下並換位' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（攔截後冷卻：對方接下來 ${T.reload} 次攻擊攔截不了）；手槍可打相鄰與田字對角點的敵人；走田字（象眼被塞就過不去；田字走不了時改走一步）` : T.line ? '走法如傳統象棋的車：橫線／直線不限距離（不能穿過棋子）；機槍只能打同一橫線／直線上的目標（比炮短 1 格），直射會被擋' : T.knight ? '走日字（可跳過棋子），蹩馬腳不能走；日字都走不了時改走一步；火箭只能打日字位置、可被相攔截；近戰隨時可用步槍（1 心）' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛；可前進或橫移，不能往後退' : '直射，會被擋'}${T.alt && !T.indirect ? `；射後裝填 ${T.reload} 回合（期間改用步槍）` : ''}</td></tr>`).join('');
 // ===== 電腦對戰（AI） =====
 // 列舉電腦每顆棋子「原地或移到某個可走的點，再攻擊某個目標（或不攻擊）」的所有行動，
-// 用與實際規則相同的函式（scan、shotgunSim、guardFor、interceptorFor）估算傷害來打分。
+// 用與實際規則相同的函式（scan、shotgunSim、guardBlock、interceptorFor）估算傷害來打分。
 // 難度：1 新手＝隨機；2 簡單＝貪心但常失誤；
 //       3、4、5＝貪心後，對分數最高的前 N 個行動推算「對手最好的反擊」並扣分（3：前 6 個、4：前 12 個、5：前 20 個，隨機性遞減）。
 // 參數由電腦互打調校：再多看一步（我方追擊）與往前推進的位置分，實測都沒有幫助，預設關閉
@@ -1332,15 +1351,17 @@ const unitValue = p => p.T.id === 'P2' ? 6 : VALUE[p.t];
 function predictAttack(a, x, y, T, b) {
   const dm = new Map(), add = (p, d) => { if (d > 0) dm.set(p, (dm.get(p) || 0) + d); }, from = { x, y };
   if (T.pellets) {
-    for (const [p, n] of shotgunSim(a, b, x, y, T).count) add(guardFor(p, from) || p, pelletDmg(n, T));
+    const bl = guardBlock(b, from, T), gx = bl && bl.g.x, gy = bl && bl.g.y;
+    if (bl) { bl.g.x = bl.x; bl.g.y = bl.y; }   // 仕先走到射線上再算彈丸
+    try { for (const [p, n] of shotgunSim(a, b, x, y, T).count) add(p, pelletDmg(n, T)); }
+    finally { if (bl) { bl.g.x = gx; bl.g.y = gy; } }
     return dm;
   }
   if (flies(T) && interceptorFor(b.s, b.x, b.y)) return dm;   // 會被防空攔下
-  const g = guardFor(b, from), tgt = g || b;
+  const bl = guardBlock(b, from, T), tgt = bl ? bl.g : b;
   add(tgt, T.dmg);
   if (T.splash) {
-    let cx = b.x, cy = b.y;
-    if (g) { const d = Math.hypot(x - b.x, y - b.y) || 1; cx = b.x + (x - b.x) / d * R * 1.7; cy = b.y + (y - b.y) / d * R * 1.7; }
+    const cx = b.x, cy = b.y;
     for (const q of alive()) {
       if (q === tgt) continue;
       const d = Math.hypot(q.x - cx, q.y - cy);
@@ -1660,6 +1681,7 @@ showCardsBtn();
 // ===== 更新內容 =====
 // 每次改版在最上面加一筆；版本更新後第一次開啟會自動彈出新內容，☰ 選單也可隨時查看
 const CHANGELOG = [
+  { v: '2026-10-18.27', t: ['仕改為「直射才擋」：只有帥被機槍／步槍／霰彈等直射攻擊，且仕的某個合法落點剛好在射線上時，仕才會自動走過去擋（並永久換位）；炮擊與火箭擋不住', '移動後會停下來顯示攻擊範圍與可打目標，不滿意可按「↩ 取消移動」（或 Esc、點其他己方棋子）退回原位換別的棋；快速模式沒有目標時仍自動結束'] },
   { v: '2026-10-18.26', t: ['新增「我的強化」清單：隨時查看已拿到的強化卡、張數與累計效果，並提示下次選牌的時機（棋盤下方的 🃏 按鈕）', '強化卡牌表改為可維護：說明可由效果自動產生、可單張停用、格式有誤的卡會被忽略並警告（見 games/CARDS.md）'] },
   { v: '2026-10-18.25', t: ['新增「強化卡牌」：開局與每 10 回合三選一，包含加強火力／射程／血量、象的回復與防空範圍等 22 種強化', '開始畫面可開關強化卡牌；新增本「更新內容」視窗'] },
   { v: '2026-10-18.24', t: ['炮的最小距離改為 4 格，近距離毫無辦法'] },
@@ -1682,7 +1704,7 @@ $('mLog').onclick = () => showLog(true);
 
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.26';
+const VERSION = '2026-10-18.27';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
@@ -1744,6 +1766,10 @@ function onNet(m) {
     const p = pieces[m.i];
     p.vx = m.vx; p.vy = m.vy; p.hd = Math.atan2(m.vy, m.vx); mover = p;
     SFX.play('launch', 0.7); state = 'moving'; setMsg('對手出發！');
+  } else if (m.t === 'undo') {   // 對手取消移動：棋子退回出發點
+    const p = pieces[m.i];
+    applyUndo({ p, x: m.x, y: m.y, hd: m.hd, hp: m.hp, T: m.pr ? TT[p.s].P2 : TT[p.s][p.t] });
+    snaps = null; mover = null; state = 'wait'; setMsg('對手取消了移動，重新選擇中…');
   } else if (m.t === 'shoot') {
     applySnap(m.snap);   // 先對齊停下的位置再播開火
     state = 'fire'; timer = 0.5; mover = pieces[m.a];
