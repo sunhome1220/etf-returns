@@ -24,7 +24,7 @@
 <header>
   <a href="index.html">← 選單</a>
   <span id="turn"></span>
-  <button id="restart">重新開始</button>
+  <span><button id="mute" title="音效開關">🔊</button> <button id="restart">重新開始</button></span>
 </header>
 <div id="bar"><div id="info"></div><button id="skip" disabled>不射擊</button></div>
 <canvas id="cv"></canvas>
@@ -42,11 +42,11 @@ const gx = c => M + c * C, gy = r => M + r * C;
 
 const SIDE = [{ name: '紅方', col: '#c0392b' }, { name: '黑方', col: '#1d1d1d' }];
 const TYPES = {
-  K: { n: ['帥', '將'], hp: 5, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 3,   w: '手槍',   palace: true },
-  R: { n: ['俥', '車'], hp: 4, dist: 7 * C,   range: 2.6 * C, min: 0,     dmg: 1, mass: 2,   w: '機槍' },
-  N: { n: ['傌', '馬'], hp: 3, dist: 4.5 * C, range: 3.4 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭' },
-  C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 2, mass: 1.5, w: '曲射砲', indirect: true },
-  P: { n: ['兵', '卒'], hp: 2, dist: 3.5 * C, range: 1.8 * C, min: 0,     dmg: 1, mass: 1,   w: '步槍' },
+  K: { n: ['帥', '將'], hp: 5, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 3,   w: '手槍',   snd: 'pistol', proj: 'bullet', palace: true },
+  R: { n: ['俥', '車'], hp: 4, dist: 7 * C,   range: 2.6 * C, min: 0,     dmg: 1, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst' },
+  N: { n: ['傌', '馬'], hp: 3, dist: 4.5 * C, range: 3.4 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket' },
+  C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', indirect: true },
+  P: { n: ['兵', '卒'], hp: 2, dist: 3.5 * C, range: 1.8 * C, min: 0,     dmg: 1, mass: 1,   w: '步槍',   snd: 'rifle',  proj: 'bullet' },
 };
 const LAYOUT = [['K',4,9],['R',0,9],['R',8,9],['N',1,9],['N',7,9],['C',1,7],['C',7,7],
                 ['P',0,6],['P',2,6],['P',4,6],['P',6,6],['P',8,6]];
@@ -57,15 +57,115 @@ const alive = () => pieces.filter(p => p.hp > 0);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const setMsg = s => $('info').textContent = s;
 const hearts = n => '♥'.repeat(n);   // 血量與傷害都以愛心計
+const rnd = k => (Math.random() - 0.5) * 2 * k;
+
+// ----- 音效（Web Audio 即時合成，不需要音檔） -----
+const SFX = (() => {
+  let ac = null, master = null, noiseBuf = null, muted = false;
+  try { muted = localStorage.getItem('rc-mute') === '1'; } catch (e) {}
+  const VOL = 0.6;
+  function init() {   // 瀏覽器規定要在使用者操作後才能出聲
+    if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    ac = new AC(); master = ac.createGain(); master.gain.value = muted ? 0 : VOL; master.connect(ac.destination);
+    noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  // 振盪器：波形、起訖頻率、長度、音量、延遲
+  function tone(type, f0, f1, dur, vol, delay = 0) {
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
+  }
+  // 濾波噪音：濾波起訖頻率、長度、音量、延遲
+  function noise(f0, f1, dur, vol, delay = 0, type = 'lowpass', q = 1) {
+    const t = ac.currentTime + delay, s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    s.buffer = noiseBuf; f.type = type; f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    s.connect(f); f.connect(g); g.connect(master); s.start(t, Math.random() * 0.4); s.stop(t + dur + 0.02);
+  }
+  const S = {
+    click:   () => tone('square', 1000, 700, 0.04, 0.08),
+    ratchet: k => tone('square', 260 + k * 520, 180 + k * 400, 0.025, 0.07),
+    launch:  k => { noise(500, 3500, 0.35, 0.2 + 0.25 * k, 0, 'bandpass', 2); tone('sawtooth', 110, 140 + 320 * k, 0.4, 0.06); },
+    bump:    v => { const k = Math.min(1, v / 600); tone('sine', 190, 55, 0.16, 0.45 * k); noise(2200, 300, 0.08, 0.3 * k); },
+    pistol:  () => { noise(4000, 400, 0.12, 0.5); tone('square', 650, 120, 0.08, 0.14); },
+    mg:      () => { for (let i = 0; i < 4; i++) { noise(5000, 500, 0.07, 0.42, i * 0.07); tone('square', 520, 140, 0.05, 0.1, i * 0.07); } },
+    rifle:   () => { noise(6500, 300, 0.22, 0.6); tone('triangle', 950, 90, 0.16, 0.2); },
+    rocket:  () => { noise(700, 3200, 0.5, 0.35, 0, 'bandpass', 1.5); tone('sawtooth', 180, 620, 0.45, 0.05); },
+    mortar:  () => { tone('sine', 150, 40, 0.25, 0.7); noise(700, 100, 0.25, 0.4); tone('sine', 2300, 650, 0.65, 0.05, 0.15); },
+    hit:     () => { tone('square', 320, 80, 0.12, 0.22); noise(3000, 200, 0.15, 0.35); },
+    boom:    big => { noise(1800, 50, big ? 1.3 : 0.7, big ? 0.9 : 0.6); tone('sine', 110, 28, big ? 0.9 : 0.5, big ? 0.8 : 0.5); },
+    win:     () => [523, 659, 784, 1047].forEach((f, i) => tone('triangle', f, f, i === 3 ? 0.7 : 0.3, 0.25, i * 0.14)),
+  };
+  return {
+    init,
+    play(n, ...a) { if (ac && !muted) S[n](...a); },
+    toggle() {
+      muted = !muted;
+      try { localStorage.setItem('rc-mute', muted ? '1' : '0'); } catch (e) {}
+      if (master) master.gain.value = muted ? 0 : VOL;
+      return muted;
+    },
+    get muted() { return muted; },
+  };
+})();
+
+// ----- 粒子特效 -----
+let parts = [], decals = [], shake = 0, lastBump = 0;
+// o: {k 種類, sp 速度, life 壽命, size, col, dir 方向（省略＝四散）, spread 擴散角, drag 阻力}
+function emit(x, y, n, o) {
+  for (let i = 0; i < n; i++) {
+    const a = o.dir === undefined ? Math.random() * Math.PI * 2 : o.dir + rnd((o.spread || 1) / 2);
+    const sp = o.sp * (0.3 + Math.random() * 0.7), L = o.life * (0.6 + Math.random() * 0.4);
+    parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: L, L, size: o.size * (0.6 + Math.random() * 0.6),
+                 col: o.col, k: o.k, drag: o.drag ?? 3, rot: Math.random() * 6 });
+  }
+}
+function flashAt(x, y, size, t = 0.12) { parts.push({ x, y, vx: 0, vy: 0, t, L: t, size, k: 'flash', drag: 0 }); }
+function muzzle(x, y, dir, big) {
+  flashAt(x, y, big ? 26 : 16);
+  emit(x, y, big ? 10 : 5, { k: 'spark', sp: 260, life: 0.18, size: 2, col: '#ffe066', dir, spread: 0.9 });
+  emit(x, y, big ? 6 : 2, { k: 'smoke', sp: 50, life: 0.7, size: 8, col: '#888', dir, spread: 1.2 });
+}
+function explode(x, y, big) {
+  flashAt(x, y, big ? 60 : 34, big ? 0.16 : 0.1);
+  parts.push({ x, y, vx: 0, vy: 0, t: 0.35, L: 0.35, size: big ? 75 : 42, k: 'ring', drag: 0 });
+  emit(x, y, big ? 40 : 18, { k: 'spark', sp: big ? 340 : 230, life: 0.5, size: 2.5, col: '#ffd23f' });
+  emit(x, y, big ? 16 : 8,  { k: 'fire',  sp: big ? 120 : 80,  life: 0.45, size: big ? 16 : 11, col: '#ff7a1a' });
+  emit(x, y, big ? 18 : 8,  { k: 'smoke', sp: big ? 60 : 40,   life: big ? 1.5 : 1, size: big ? 18 : 12, col: '#555' });
+  if (big) emit(x, y, 12, { k: 'debris', sp: 280, life: 0.9, size: 5, col: '#3a2a1a', drag: 2.5 });
+  decals.push({ x: x + rnd(4), y: y + rnd(4), r: big ? 30 + Math.random() * 6 : 13 });
+  shake = Math.max(shake, big ? 12 : 5);
+}
+function bumpFX(x, y, v) {
+  const now = performance.now();
+  if (now - lastBump > 60) { SFX.play('bump', v); lastBump = now; }
+  if (v > 250) emit(x, y, 6, { k: 'spark', sp: 180, life: 0.25, size: 2, col: '#fff3b0' });
+  if (v > 450) shake = Math.max(shake, 3);
+}
+function updParts(dt) {
+  for (const p of parts) {
+    p.t -= dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    const f = Math.exp(-p.drag * dt); p.vx *= f; p.vy *= f;
+    if (p.k === 'smoke') p.y -= 12 * dt;
+  }
+  parts = parts.filter(p => p.t > 0);
+  shake = Math.max(0, shake - 40 * dt);
+}
 
 function reset() {
   pieces = [];
   for (let s = 0; s < 2; s++)
     for (const [t, c, r] of LAYOUT) {
       const T = TYPES[t];
-      pieces.push({ s, t, T, x: gx(c), y: gy(s ? 9 - r : r), vx: 0, vy: 0, hp: T.hp, hd: s ? Math.PI / 2 : -Math.PI / 2 });
+      pieces.push({ s, t, T, x: gx(c), y: gy(s ? 9 - r : r), vx: 0, vy: 0, hp: T.hp, hd: s ? Math.PI / 2 : -Math.PI / 2, flash: 0, recoil: 0 });
     }
-  turn = 0; state = 'aim'; drag = null; fx = []; winner = null; targets = [];
+  turn = 0; state = 'aim'; drag = null; fx = []; winner = null; targets = []; parts = []; decals = []; shake = 0;
   updateHeader(); $('skip').disabled = true;
   setMsg('拉動己方棋子移動（輕點＝原地不動），停下後點選要攻擊的敵人。');
 }
@@ -88,10 +188,12 @@ function moveOne(p, dt) {
     p.x += p.vx * dt; p.y += p.vy * dt;
   }
   const [x0, y0, x1, y1] = bounds(p);
-  if (p.x < x0) { p.x = x0; p.vx = -p.vx * 0.6; }
-  if (p.x > x1) { p.x = x1; p.vx = -p.vx * 0.6; }
-  if (p.y < y0) { p.y = y0; p.vy = -p.vy * 0.6; }
-  if (p.y > y1) { p.y = y1; p.vy = -p.vy * 0.6; }
+  let bump = 0;   // 撞牆速度（給音效用）
+  if (p.x < x0) { p.x = x0; bump = Math.abs(p.vx); p.vx = -p.vx * 0.6; }
+  if (p.x > x1) { p.x = x1; bump = Math.abs(p.vx); p.vx = -p.vx * 0.6; }
+  if (p.y < y0) { p.y = y0; bump = Math.max(bump, Math.abs(p.vy)); p.vy = -p.vy * 0.6; }
+  if (p.y > y1) { p.y = y1; bump = Math.max(bump, Math.abs(p.vy)); p.vy = -p.vy * 0.6; }
+  return bump;
 }
 function collide(a, b) {
   const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
@@ -104,12 +206,17 @@ function collide(a, b) {
   const j = (1 + E) * vn / (1 / ma + 1 / mb);
   a.vx -= j / ma * nx; a.vy -= j / ma * ny;
   b.vx += j / mb * nx; b.vy += j / mb * ny;
+  if (vn > 80) bumpFX(a.x + nx * R, a.y + ny * R, vn);
 }
 function physics(dt) {
   const ps = alive();
   for (const p of ps) {
-    moveOne(p, dt);
-    if (Math.hypot(p.vx, p.vy) > 40) p.hd = Math.atan2(p.vy, p.vx);
+    const bump = moveOne(p, dt), sp = Math.hypot(p.vx, p.vy);
+    if (bump > 100) bumpFX(p.x, p.y, bump);
+    if (sp > 40) p.hd = Math.atan2(p.vy, p.vx);
+    if (sp > 150 && Math.random() < 0.15)   // 車尾揚起塵土（河道是水花）
+      emit(p.x - Math.cos(p.hd) * R, p.y - Math.sin(p.hd) * R, 1,
+           { k: 'smoke', sp: 30, life: 0.6, size: 7, col: inRiver(p) ? '#9cc3d5' : '#b89a6a', dir: p.hd + Math.PI, spread: 1.5 });
   }
   for (let i = 0; i < ps.length; i++)
     for (let j = i + 1; j < ps.length; j++) collide(ps[i], ps[j]);
@@ -160,12 +267,39 @@ function onStop() {
     setMsg(targets.length ? '射程內的敵人都被擋住或太近，無法開火。' : '射程內沒有敵人。');
   }
 }
+// 開火：車頭轉向目標、槍口火光、彈體飛行，命中時才扣血（impact）
 function shoot(a, b) {
-  b.hp = Math.max(0, b.hp - a.T.dmg);
-  fx.push({ k: a.T.indirect ? 'arc' : 'line', x1: a.x, y1: a.y, x2: b.x, y2: b.y, col: a.s ? '#222' : '#e74c3c', t: 0.5, T: 0.5 });
-  fx.push({ k: 'txt', x: b.x, y: b.y - R, txt: '-' + hearts(a.T.dmg), t: 1, T: 1 });
-  if (b.hp <= 0) fx.push({ k: 'boom', x: b.x, y: b.y, t: 0.6, T: 0.6 });
-  setMsg(`${a.T.n[a.s]} 用${a.T.w}攻擊 ${b.T.n[b.s]}，打掉 ${hearts(a.T.dmg)}` + (b.hp <= 0 ? '，擊毀！' : `（剩 ${hearts(b.hp)}）`));
+  const T = a.T, dir = Math.atan2(b.y - a.y, b.x - a.x);
+  const mx = a.x + Math.cos(dir) * (R + 8), my = a.y + Math.sin(dir) * (R + 8);
+  a.hd = dir; a.recoil = 1;
+  SFX.play(T.snd);
+  setMsg(`${T.n[a.s]} 用${T.w}攻擊 ${b.T.n[b.s]}！`);
+  const base = { x1: mx, y1: my, x2: b.x, y2: b.y, dir, side: a.s };
+  if (T.proj === 'burst') {            // 機槍：四發連射，最後一發結算傷害
+    for (let i = 0; i < 4; i++)
+      fx.push({ ...base, k: 'bullet', x2: b.x + rnd(7), y2: b.y + rnd(7), t: 0.12, T: 0.12, delay: i * 0.07 + 0.001,
+                start: () => { muzzle(mx, my, dir, false); a.recoil = 1; },
+                done: i === 3 ? () => impact(a, b) : () => emit(b.x, b.y, 4, { k: 'spark', sp: 160, life: 0.2, size: 2, col: '#ffe066' }) });
+  } else if (T.proj === 'bullet') {
+    muzzle(mx, my, dir, false);
+    fx.push({ ...base, k: 'bullet', t: 0.12, T: 0.12, done: () => impact(a, b) });
+  } else if (T.proj === 'rocket') {
+    muzzle(mx, my, dir, true);
+    fx.push({ ...base, k: 'rocket', t: 0.45, T: 0.45, done: () => impact(a, b) });
+  } else {                             // 曲射砲：拋物線飛行
+    muzzle(mx, my, dir, true);
+    fx.push({ ...base, k: 'shell', t: 0.8, T: 0.8, h: Math.hypot(b.x - a.x, b.y - a.y) * 0.45, done: () => impact(a, b) });
+  }
+}
+function impact(a, b) {
+  const T = a.T, heavy = T.proj === 'rocket' || T.proj === 'shell';
+  b.hp = Math.max(0, b.hp - T.dmg); b.flash = 0.35;
+  fx.push({ k: 'txt', x: b.x, y: b.y - R, txt: '-' + hearts(T.dmg), t: 1, T: 1 });
+  if (b.hp <= 0) { explode(b.x, b.y, true); SFX.play('boom', true); }
+  else if (heavy) { explode(b.x, b.y, false); SFX.play('boom', false); }
+  else { emit(b.x, b.y, 10, { k: 'spark', sp: 220, life: 0.3, size: 2.5, col: '#ffe066' }); flashAt(b.x, b.y, 18); SFX.play('hit'); shake = Math.max(shake, 2); }
+  setMsg(`${T.n[a.s]} 用${T.w}攻擊 ${b.T.n[b.s]}，打掉 ${hearts(T.dmg)}` + (b.hp <= 0 ? '，擊毀！' : `（剩 ${hearts(b.hp)}）`));
+  timer = Math.max(timer, b.hp <= 0 ? 1.2 : 0.8);
   checkWin();
 }
 function checkWin() {
@@ -173,7 +307,7 @@ function checkWin() {
     if (!pieces.some(p => p.s === s && p.t === 'K' && p.hp > 0)) winner = 1 - s;
 }
 function endTurn() {
-  if (winner !== null) { state = 'over'; return; }
+  if (winner !== null) { state = 'over'; SFX.play('win'); return; }
   turn = 1 - turn; state = 'aim'; targets = []; updateHeader();
 }
 function update(dt) {
@@ -181,9 +315,29 @@ function update(dt) {
     for (let i = 0; i < 4; i++) physics(dt / 4);
     if (alive().every(p => Math.hypot(p.vx, p.vy) < 2)) { pieces.forEach(p => p.vx = p.vy = 0); onStop(); }
   } else if (state === 'fire') {
-    timer -= dt; if (timer <= 0) endTurn();
+    timer -= dt;
+    if (timer <= 0 && !fx.some(f => f.done)) endTurn();   // 等所有彈體落地
   }
-  fx.forEach(f => f.t -= dt); fx = fx.filter(f => f.t > 0);
+  for (const p of pieces) { p.flash = Math.max(0, p.flash - dt); p.recoil = Math.max(0, p.recoil - dt * 6); }
+  for (const f of fx) {
+    if (f.delay > 0) { f.delay -= dt; if (f.delay <= 0 && f.start) f.start(); continue; }
+    f.t -= dt;
+    if (f.k === 'rocket' && f.t > 0) {   // 火箭尾焰與煙
+      const [x, y] = projPos(f);
+      emit(x, y, 2, { k: 'smoke', sp: 20, life: 0.7, size: 7, col: '#999' });
+      emit(x, y, 1, { k: 'fire', sp: 40, life: 0.15, size: 6, col: '#ffb030', dir: f.dir + Math.PI, spread: 0.6 });
+    }
+  }
+  const finished = fx.filter(f => f.t <= 0);
+  fx = fx.filter(f => f.t > 0);
+  finished.forEach(f => f.done && f.done());
+  updParts(dt);
+}
+// 彈體目前位置（火箭加速、砲彈拋物線）
+function projPos(f) {
+  const k = 1 - Math.max(0, f.t) / f.T, e = f.k === 'rocket' ? k * k : k;
+  const x = f.x1 + (f.x2 - f.x1) * e, y = f.y1 + (f.y2 - f.y1) * e;
+  return [x, f.k === 'shell' ? y - Math.sin(k * Math.PI) * f.h : y, x, y, k];
 }
 
 // ----- 輸入 -----
@@ -193,30 +347,40 @@ function pos(e) {
 }
 cv.addEventListener('pointerdown', e => {
   const m = pos(e);
+  SFX.init();
   if (state === 'over') { reset(); return; }
   if (state === 'target') {
     const t = targets.find(t => t.ok && Math.hypot(t.p.x - m.x, t.p.y - m.y) < R + 8);
-    if (t) { shoot(mover, t.p); targets = []; $('skip').disabled = true; state = 'fire'; timer = 0.9; }
+    if (t) { targets = []; $('skip').disabled = true; state = 'fire'; timer = 0.5; shoot(mover, t.p); }
     return;
   }
   if (state !== 'aim') return;
   const p = alive().find(p => p.s === turn && Math.hypot(p.x - m.x, p.y - m.y) < R + 6);
-  if (p) { drag = { p, x: m.x, y: m.y }; cv.setPointerCapture(e.pointerId); }
+  if (p) { drag = { p, x: m.x, y: m.y, notch: 0 }; cv.setPointerCapture(e.pointerId); SFX.play('click'); }
 });
-cv.addEventListener('pointermove', e => { if (drag) Object.assign(drag, pos(e)); });
+cv.addEventListener('pointermove', e => {
+  if (!drag) return;
+  Object.assign(drag, pos(e));
+  const { len, pw } = pullInfo(), notch = Math.floor(Math.min(len, MAXPULL) / 12);   // 拉動時的齒輪聲
+  if (notch !== drag.notch) { SFX.play('ratchet', pw); drag.notch = notch; }
+});
 cv.addEventListener('pointerup', () => {
   if (!drag) return;
-  const { len, vx, vy } = pullInfo(), p = drag.p;
+  const { len, pw, vx, vy } = pullInfo(), p = drag.p;
   drag = null; mover = p;
   if (len < 10) { onStop(); return; }          // 輕點：原地不動直接進入瞄準
   p.vx = vx; p.vy = vy; p.hd = Math.atan2(vy, vx);
+  SFX.play('launch', pw);
+  emit(p.x - Math.cos(p.hd) * R, p.y - Math.sin(p.hd) * R, 6, { k: 'smoke', sp: 70, life: 0.6, size: 8, col: '#b89a6a', dir: p.hd + Math.PI, spread: 1.4 });
   state = 'moving';
 });
 $('skip').onclick = () => {
   if (state !== 'target') return;
   targets = []; $('skip').disabled = true; state = 'fire'; timer = 0.2;
 };
-$('restart').onclick = reset;
+$('restart').onclick = () => { SFX.init(); reset(); };
+$('mute').textContent = SFX.muted ? '🔇' : '🔊';
+$('mute').onclick = () => { SFX.init(); $('mute').textContent = SFX.toggle() ? '🔇' : '🔊'; };
 
 // ----- 繪圖 -----
 function line(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
@@ -244,7 +408,10 @@ function drawBoard() {
   ctx.fillText('楚河（泥濘）', gx(2), gy(4.5)); ctx.fillText('漢界（泥濘）', gx(6), gy(4.5));
 }
 function drawPiece(p) {
-  ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.hd);
+  ctx.save();
+  // 中彈抖動、開火後座力
+  ctx.translate(p.x + (p.flash ? rnd(3) : 0) - Math.cos(p.hd) * p.recoil * 5, p.y + (p.flash ? rnd(3) : 0) - Math.sin(p.hd) * p.recoil * 5);
+  ctx.rotate(p.hd);
   ctx.fillStyle = '#333';
   for (const [x, y] of [[-11, -R], [11, -R], [-11, R], [11, R]]) ctx.fillRect(x - 5, y - 3, 10, 6);
   ctx.fillStyle = SIDE[p.s].col; ctx.beginPath(); ctx.moveTo(R + 7, 0); ctx.lineTo(R - 1, -5); ctx.lineTo(R - 1, 5); ctx.fill();
@@ -254,6 +421,7 @@ function drawPiece(p) {
   circle(0, 0, R - 4); ctx.lineWidth = 1; ctx.stroke();
   ctx.fillStyle = SIDE[p.s].col; ctx.font = 'bold 20px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(p.T.n[p.s], 0, 1);
+  if (p.flash) { circle(0, 0, R); ctx.fillStyle = `rgba(255,255,255,${p.flash * 2})`; ctx.fill(); }
   // 血量愛心：實心＝剩餘，空心＝已失去
   const n = p.T.hp, gap = 9;
   for (let i = 0; i < n; i++) {
@@ -283,8 +451,63 @@ function marks(list) {
     }
   }
 }
+function drawDecals() {   // 地上的焦痕
+  for (const d of decals) {
+    const g = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r);
+    g.addColorStop(0, '#2a1a0a88'); g.addColorStop(0.6, '#3a2a1a44'); g.addColorStop(1, '#3a2a1a00');
+    circle(d.x, d.y, d.r); ctx.fillStyle = g; ctx.fill();
+  }
+}
+function drawParts() {
+  for (const p of parts) {
+    const a = p.t / p.L, k = 1 - a;
+    ctx.globalAlpha = Math.min(1, a * 1.5);
+    if (p.k === 'spark') {
+      ctx.strokeStyle = p.col; ctx.lineWidth = p.size;
+      line(p.x, p.y, p.x - p.vx * 0.03, p.y - p.vy * 0.03);
+    } else if (p.k === 'fire') {
+      circle(p.x, p.y, p.size * (0.5 + k * 0.8)); ctx.fillStyle = a > 0.5 ? '#ffd166' : p.col; ctx.fill();
+    } else if (p.k === 'smoke') {
+      ctx.globalAlpha = 0.45 * a; circle(p.x, p.y, p.size * (0.6 + k * 1.4)); ctx.fillStyle = p.col; ctx.fill();
+    } else if (p.k === 'debris') {
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot + k * 10); ctx.fillStyle = p.col;
+      ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6); ctx.restore();
+    } else if (p.k === 'ring') {
+      circle(p.x, p.y, 6 + p.size * k); ctx.strokeStyle = '#fff4d0'; ctx.lineWidth = 5 * a; ctx.stroke();
+    } else if (p.k === 'flash') {
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(0.35, '#fff1a8'); g.addColorStop(1, '#ffb43000');
+      circle(p.x, p.y, p.size); ctx.fillStyle = g; ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+function drawProj(f) {
+  if (f.delay > 0) return;
+  const [x, y, gx0, gy0, k] = projPos(f);
+  if (f.k === 'bullet') {
+    const bx = x - Math.cos(f.dir) * 16, by = y - Math.sin(f.dir) * 16;
+    ctx.strokeStyle = '#fff7c2'; ctx.lineWidth = 3; line(bx, by, x, y);
+    ctx.strokeStyle = f.side ? '#555' : '#ff6b4a'; ctx.lineWidth = 1; line(bx, by, x, y);
+  } else if (f.k === 'rocket') {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(f.dir);
+    ctx.fillStyle = '#ffb030'; ctx.beginPath(); ctx.moveTo(-8, -3); ctx.lineTo(-16 - Math.random() * 6, 0); ctx.lineTo(-8, 3); ctx.fill();
+    ctx.fillStyle = f.side ? '#333' : '#b03020'; ctx.fillRect(-8, -3, 14, 6);
+    ctx.fillStyle = '#ddd'; ctx.beginPath(); ctx.moveTo(6, -3); ctx.lineTo(11, 0); ctx.lineTo(6, 3); ctx.fill();
+    ctx.restore();
+  } else if (f.k === 'shell') {
+    const lift = Math.sin(k * Math.PI);
+    ctx.fillStyle = `rgba(0,0,0,${0.35 - lift * 0.2})`;   // 地面影子
+    ctx.beginPath(); ctx.ellipse(gx0, gy0, 7 - lift * 3, 4 - lift * 2, 0, 0, Math.PI * 2); ctx.fill();
+    circle(x, y, 5 + lift * 3); ctx.fillStyle = '#222'; ctx.fill();
+    circle(x - 1.5, y - 1.5, 1.5 + lift); ctx.fillStyle = '#888'; ctx.fill();
+  }
+}
 function draw() {
+  ctx.save();
+  if (shake) ctx.translate(rnd(shake), rnd(shake));
   drawBoard();
+  drawDecals();
   if (state === 'aim') for (const p of alive()) if (p.s === turn) {
     circle(p.x, p.y, R + 5); ctx.strokeStyle = turn ? '#0005' : '#c0392b66'; ctx.lineWidth = 3; ctx.stroke();
   }
@@ -306,19 +529,16 @@ function draw() {
   if (state === 'target') rangeRing(mover, mover.x, mover.y);
   for (const p of alive()) drawPiece(p);
   marks(state === 'target' ? targets : preview);
-  for (const f of fx) {
+  for (const f of fx) if (f.k !== 'txt') drawProj(f);
+  drawParts();
+  for (const f of fx) if (f.k === 'txt') {
     const a = f.t / f.T;
-    ctx.globalAlpha = a;
-    if (f.k === 'line') { ctx.strokeStyle = f.col; ctx.lineWidth = 4; line(f.x1, f.y1, f.x2, f.y2); }
-    if (f.k === 'arc') {
-      const mx = (f.x1 + f.x2) / 2, my = (f.y1 + f.y2) / 2 - Math.hypot(f.x2 - f.x1, f.y2 - f.y1) * 0.4;
-      ctx.strokeStyle = f.col; ctx.lineWidth = 3; ctx.setLineDash([6, 5]);
-      ctx.beginPath(); ctx.moveTo(f.x1, f.y1); ctx.quadraticCurveTo(mx, my, f.x2, f.y2); ctx.stroke(); ctx.setLineDash([]);
-    }
-    if (f.k === 'txt') { ctx.fillStyle = '#e00'; ctx.font = 'bold 22px sans-serif'; ctx.fillText(f.txt, f.x, f.y - (1 - a) * 30); }
-    if (f.k === 'boom') { circle(f.x, f.y, R + (1 - a) * 30); ctx.fillStyle = '#f39c12'; ctx.fill(); }
+    ctx.globalAlpha = Math.min(1, a * 2); ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
+    ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.strokeText(f.txt, f.x, f.y - (1 - a) * 30);
+    ctx.fillStyle = '#e00'; ctx.fillText(f.txt, f.x, f.y - (1 - a) * 30);
     ctx.globalAlpha = 1;
   }
+  ctx.restore();
   if (state === 'over') {
     ctx.fillStyle = '#000a'; ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = winner ? '#fff' : '#ff7b6b'; ctx.font = 'bold 44px sans-serif'; ctx.textAlign = 'center';
