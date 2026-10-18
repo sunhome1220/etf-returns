@@ -55,6 +55,21 @@
   .cbtn span { font-size:13px; color:#5a4632; }
   .cbtn em { font-style:normal; font-size:11px; color:#a85a1a; }
   #perks { width:100%; max-width:560px; padding:2px 14px 0; font-size:12px; color:#b9cdbf; min-height:1.2em; }
+  #perksBar { width:100%; max-width:560px; padding:0 14px; display:flex; gap:8px; align-items:center; }
+  #perksBar button { flex:none; padding:4px 10px; font-size:13px; }
+  #perksBar #perks { padding:0; flex:1; }
+  #perkOv { position:fixed; inset:0; background:#000c; display:flex; align-items:center; justify-content:center; z-index:16; padding:14px; overflow:auto; }
+  #perkOv[hidden] { display:none; }
+  #perkOv .tabs { display:flex; gap:6px; margin:6px 0 8px; }
+  #perkOv .tabs button { flex:1; padding:6px 0; opacity:.55; }
+  #perkOv .tabs button.on { opacity:1; font-weight:700; }
+  .pitem { display:flex; gap:12px; align-items:flex-start; background:#35483c; border:1px solid #587563; border-radius:10px; padding:9px 11px; margin:7px 0; }
+  .pitem .ic { font-size:28px; width:38px; text-align:center; flex:none; }
+  .pitem b { display:block; font-size:15px; color:#ffe39a; }
+  .pitem span { font-size:13px; color:#dfe9e2; display:block; }
+  .pitem em { font-style:normal; font-size:12px; color:#8fe0a8; display:block; margin-top:2px; }
+  #perkOv .empty { text-align:center; color:#a9bcaf; padding:14px 0; font-size:14px; }
+  #perkOv .next { text-align:center; color:#ffd166; font-size:13px; margin-top:6px; }
   #toast { position:fixed; top:54px; left:50%; transform:translateX(-50%); z-index:25; background:#ffd166; color:#3a2a00; font-weight:700; padding:8px 16px; border-radius:18px; box-shadow:0 4px 14px #0008; pointer-events:none; opacity:0; transition:opacity .25s; max-width:92vw; text-align:center; }
   #toast.on { opacity:1; }
   #logOv ul { margin:4px 0 10px; padding-left:20px; font-size:13.5px; color:#dfe9e2; }
@@ -73,10 +88,11 @@
 </header>
 <div id="bar"><div id="info"></div><button id="fire" hidden>出發</button><button id="skip" disabled>不射擊</button></div>
 <canvas id="cv"></canvas>
-<div id="perks"></div>
+<div id="perksBar"><button id="perkBtn" hidden>🃏 我的強化</button><span id="perks"></span></div>
 <table id="legend"></table>
 <div id="toast"></div>
 <div id="cardPick" hidden><div class="pbox" id="cardBox"><h2 id="cardTitle"></h2><div class="sub" id="cardSub"></div><div id="cardList"></div></div></div>
+<div id="perkOv" hidden><div class="pbox"><h2>🃏 我的強化</h2><div class="tabs"><button id="pTab0">紅方</button><button id="pTab1">黑方</button></div><div id="perkBody"></div><button id="perkClose" style="width:100%;margin-top:8px">關閉</button></div></div>
 <div id="logOv" hidden><div class="pbox"><h2>📋 更新內容</h2><div id="logBody"></div><button id="logClose" style="width:100%;margin-top:8px">知道了</button></div></div>
 <button id="newver" hidden>🆕 有新版本，點此更新</button>
 <div id="lobby" hidden><div class="box">
@@ -1295,7 +1311,7 @@ let last = performance.now();
 function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; draw(); requestAnimationFrame(loop); }
 
 $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動(格)</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
-  Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${T.knight ? '日字' : T.aa ? '田字' : T.guard ? '斜 1' : T.dist >= 9 * C ? '直線不限' : (T.dist / C).toFixed(1)}</td>` +
+  Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${T.knight ? '日字' : T.aa ? '田字' : T.guard ? '斜 1' : T.dist >= 9 * C ? '不限' : (T.dist / C).toFixed(1)}</td>` +
     `<td>${T.guard ? '護衛' : T.aa ? '手槍 ' + (T.melee / C).toFixed(1) + '／田字／攔截 ' + (T.aa / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${T.guard ? '-' : hearts(T.dmg)}</td>` +
     `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；走法同車；只能打同一橫線／直線上、距離 4～5.2 格的目標；沒有冷卻，但近距離毫無辦法` : T.guard ? '限九宮斜走一格；帥被攻擊時衝出來替帥擋下（炮的波及擋不住）' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（攔截後冷卻：對方接下來 ${T.reload} 次攻擊攔截不了）；手槍可打相鄰與田字對角點的敵人；走田字（象眼被塞就過不去；田字走不了時改走一步）` : T.line ? '走法如傳統象棋的車：橫線／直線不限距離（不能穿過棋子）；機槍只能打同一橫線／直線上的目標（比炮短 1 格），直射會被擋' : T.knight ? '走日字（可跳過棋子），蹩馬腳不能走；日字都走不了時改走一步；火箭只能打日字位置、可被相攔截；近戰隨時可用步槍（1 心）' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛；可前進或橫移，不能往後退' : '直射，會被擋'}${T.alt && !T.indirect ? `；射後裝填 ${T.reload} 回合（期間改用步槍）` : ''}</td></tr>`).join('');
 // ===== 電腦對戰（AI） =====
@@ -1434,12 +1450,55 @@ function aiTick() {
 }
 
 // ===== 強化卡牌 =====
+const TYPE_NAME = { K: '帥', R: '俥', N: '傌', C: '炮', E: '象', G: '仕', P: '兵', P2: '士官長' };
+// 數值名稱 → [顯示名稱, 格式化函式]；cells 以格為單位、hearts 以心為單位
+const num = v => String(Math.round(v * 100) / 100);
+const STAT_INFO = {
+  dmg:     ['威力', v => `${v > 0 ? '+' : ''}${num(v)} 心`],
+  range:   ['射程', v => `${v > 0 ? '+' : ''}${num(v / C)} 格`],
+  min:     ['最小距離', v => `${v > 0 ? '+' : ''}${num(v / C)} 格`],
+  splash:  ['波及範圍', v => `${v > 0 ? '+' : ''}${num(v / C)} 格`],
+  aa:      ['防空範圍', v => `${v > 0 ? '+' : ''}${num(v / C)} 格`],
+  hp:      ['血量上限', v => `${v > 0 ? '+' : ''}${num(v)} 心`],
+  reload:  ['冷卻', v => `${v > 0 ? '+' : ''}${num(v)} 回合`],
+  healAmt: ['每回合回復', v => `+${num(v)} 心`],
+};
+// 把 fx（乘以張數 n）轉成「俥 威力 +1 心、射程 +1 格」這類文字
+function fxText(fx, n = 1) {
+  return Object.entries(fx || {}).map(([k, st]) => `${TYPE_NAME[k] || k} ` + Object.entries(st).map(([stat, v]) => { const i = STAT_INFO[stat]; return i ? `${i[0]} ${i[1](v * n)}` : ''; }).filter(Boolean).join('、')).join('；');
+}
+const cardDesc = c => c.desc || fxText(c.fx) || c.name;
+// 載入時檢查卡牌表：缺欄位、重複代號、未知的兵種／數值名稱、效果為空的卡一律剔除並在主控台警告，避免一筆錯誤毀掉整個遊戲
+function validateCards(list) {
+  const ids = new Set(), ok = [];
+  for (const c of list) {
+    const bad = [];
+    if (!c || !c.id || !c.name || !c.ic) bad.push('缺少 id／name／ic');
+    else if (ids.has(c.id)) bad.push('id 重複');
+    if (c && !c.fx && !c.instant) bad.push('沒有 fx 也沒有 instant');
+    for (const [k, st] of Object.entries((c && c.fx) || {})) {
+      if (!TYPES[k]) bad.push(`未知兵種 ${k}`);
+      for (const stat of Object.keys(st)) if (!STAT_INFO[stat]) bad.push(`未知數值 ${stat}`);
+    }
+    if (c && !(c.max >= 1)) bad.push('max 必須 ≥ 1');
+    if (bad.length) { console.warn('[強化卡牌] 已忽略：', c && c.id, bad.join('、')); continue; }
+    if (c.off) continue;
+    ids.add(c.id); ok.push(c);
+  }
+  return ok;
+}
 // 開局雙方各選 1 張；之後每方自己的每第 10 個回合開始時再選 1 張（三選一）。強化以「每方一份數值表」累加，
 // 棋子的傷害、射程、血量、冷卻、防空範圍等都直接讀取這份表，所以對所有規則（含電腦對戰、連線同步）一律生效。
 let cardsOn = true;
 try { cardsOn = localStorage.getItem('rc-cards') !== '0'; } catch (e) {}
 { const q = new URLSearchParams(location.search).get('cards'); if (q === '0') cardsOn = false; else if (q === '1') cardsOn = true; }
-const CARDS = [
+// ───────────── 強化卡牌清單（想增減卡牌只要改這一段，「我的強化」清單與選牌畫面會自動跟著更新）─────────────
+// 每張卡：{ id 唯一代號, ic 圖示, name 名稱, fx 效果, max 最多可拿幾張, need 需要己方還有這種棋子（K R N C E G P）, cond 額外條件函式(side)→布林,
+//           desc 說明（可省略，省略時由 fx 自動產生）, instant 立即效果函式(side)（急救、補給這類不改數值的卡）, off: true 暫時停用 }
+// fx 格式：{ 兵種代號: { 數值名: 增減量 } }，兵種代號 K 帥 R 俥 N 傌 C 炮 E 象 G 仕 P 兵 P2 士官長；
+//         數值名 dmg 威力(心)／range 射程／min 最小距離／splash 波及範圍／aa 防空範圍（這三項單位是像素，用 C 的倍數表示格數）／hp 血量上限(心)／reload 冷卻回合／healAmt 每回合回復(心)
+// 新增：在下面加一筆即可；停用：加 off: true；刪除：直接移除該筆（已經存在的對局不受影響）。格式有誤的卡會被忽略並在主控台警告。詳見 games/CARDS.md
+const CARDS = validateCards([
   { id: 'r_dmg', ic: '🔫', name: '俥・加裝彈鏈', desc: '俥的機槍威力 +0.5 心', need: 'R', max: 3, fx: { R: { dmg: 0.5 } } },
   { id: 'r_rng', ic: '🎯', name: '俥・長管槍身', desc: '俥的射程 +1 格', need: 'R', max: 2, fx: { R: { range: C } } },
   { id: 'r_hp',  ic: '🛡️', name: '俥・加厚裝甲', desc: '俥的血量上限 +1 心，並回復 1 心', need: 'R', max: 2, fx: { R: { hp: 1 } } },
@@ -1462,7 +1521,7 @@ const CARDS = [
   { id: 'all_rng', ic: '🔭', name: '全軍・望遠鏡', desc: '所有武器射程 +0.5 格', max: 2, fx: Object.fromEntries(['K', 'R', 'N', 'C', 'E', 'P', 'P2'].map(k => [k, { range: 0.5 * C }])) },
   { id: 'all_heal', ic: '🚑', name: '全軍・急救包', desc: '所有己方棋子立即回復 1 心', max: 3, instant: s => { for (const p of pieces) if (p.s === s && p.hp > 0 && p.hp < p.T.hp) { const h = Math.min(1, p.T.hp - p.hp); p.hp += h; healFX(p, h); } }, cond: s => pieces.some(p => p.s === s && p.hp > 0 && p.hp < p.T.hp) },
   { id: 'sup',   ic: '📦', name: '空投補給', desc: '傷得最重的一顆己方棋子立即回滿血', max: 5, instant: s => { let best = null, miss = 0; for (const p of pieces) if (p.s === s && p.hp > 0 && p.T.hp - p.hp > miss) { best = p; miss = p.T.hp - p.hp; } if (best) { healFX(best, miss); best.hp = best.T.hp; } }, cond: s => pieces.some(p => p.s === s && p.hp > 0 && p.hp < p.T.hp) },
-];
+]);
 const cardOf = id => CARDS.find(c => c.id === id);
 let pickQ = [], pickSide = null, waitingFor = null, incoming = [];
 function cardOk(c, side) {
@@ -1509,9 +1568,30 @@ function healFX(q, amt) {
 let toastTimer = 0;
 function toast(t) { const e = $('toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => e.classList.remove('on'), 2600); }
 function renderPerks() {
-  const part = s => { const l = Object.entries(cardCount[s]).map(([id, n]) => `${cardOf(id).ic}${cardOf(id).name.split('・')[1] || cardOf(id).name}${n > 1 ? '×' + n : ''}`); return l.length ? `<b>${SIDE[s].name}</b> ${l.join('、')}` : ''; };
+  const part = s => { const l = Object.entries(cardCount[s]).filter(([id]) => cardOf(id)).map(([id, n]) => `${cardOf(id).ic}${cardOf(id).name.split('・')[1] || cardOf(id).name}${n > 1 ? '×' + n : ''}`); return l.length ? `<b>${SIDE[s].name}</b> ${l.join('、')}` : ''; };
   $('perks').innerHTML = [part(0), part(1)].filter(Boolean).join('　｜　');
+  const total = cardCount[0] && Object.values(cardCount[mode === 'ai' || online() ? mySide : 0]).reduce((a, b) => a + b, 0);
+  $('perkBtn').hidden = !cardsOn; $('perkBtn').textContent = '🃏 我的強化' + (total ? `（${total}）` : '');
+  if (!$('perkOv').hidden) showPerks(perkTab);
 }
+// 「我的強化」清單：列出某一方已拿到的所有卡、張數、說明與累計效果，並提示下次選牌的時機。資料全部來自 CARDS，卡牌增減會自動反映
+let perkTab = 0;
+function showPerks(side) {
+  perkTab = side;
+  const mine = mode === 'ai' || online() ? mySide : -1;   // 對電腦／連線時標示哪一方是自己
+  for (const s of [0, 1]) { const b = $('pTab' + s); b.textContent = SIDE[s].name + (s === mine ? '（我）' : ''); b.classList.toggle('on', s === side); }
+  const list = Object.entries(cardCount[side]).filter(([id]) => cardOf(id));
+  const left = 10 - (turnsPlayed[side] % 10);
+  $('perkBody').innerHTML = (list.length ? list.map(([id, n]) => {
+    const c = cardOf(id), total = c.fx ? fxText(c.fx, n) : '';
+    return `<div class="pitem"><div class="ic">${c.ic}</div><div><b>${c.name}${n > 1 ? ` ×${n}` : ''}</b><span>${cardDesc(c)}</span>${total && n > 1 ? `<em>累計：${total}</em>` : total ? `<em>目前效果：${total}</em>` : ''}</div></div>`;
+  }).join('') : '<div class="empty">還沒有獲得任何強化</div>') +
+    `<div class="next">${cardsOn ? `${SIDE[side].name}還要下完 ${left} 個回合，就能再選一張強化卡` : '強化卡牌目前已關閉'}</div>`;
+  $('perkOv').hidden = false;
+}
+$('perkBtn').onclick = () => showPerks(mode === 'ai' || online() ? mySide : turn);
+$('pTab0').onclick = () => showPerks(0); $('pTab1').onclick = () => showPerks(1);
+$('perkClose').onclick = () => { $('perkOv').hidden = true; };
 // 選牌流程：pickQ 依序處理；自己這台裝置上的人類顯示三選一，電腦自動選，連線對手則等他的選擇訊息
 function beginPick(sides) { pickQ = sides.slice(); state = 'pick'; sel = null; targets = []; setSkip(false); nextPick(); }
 function nextPick() {
@@ -1544,7 +1624,7 @@ function showCards(side) {
   for (const c of offers) {
     const b = document.createElement('button'); b.className = 'cbtn';
     const n = cardCount[side][c.id] || 0;
-    b.innerHTML = `<div class="ic">${c.ic}</div><div><b>${c.name}</b><span>${c.desc}</span>${n ? `<br><em>已持有 ${n} 張，效果疊加</em>` : ''}</div>`;
+    b.innerHTML = `<div class="ic">${c.ic}</div><div><b>${c.name}</b><span>${cardDesc(c)}</span>${n ? `<br><em>已持有 ${n} 張，效果疊加</em>` : ''}</div>`;
     b.onclick = () => chooseCard(side, c.id);
     list.appendChild(b);
   }
@@ -1580,6 +1660,7 @@ showCardsBtn();
 // ===== 更新內容 =====
 // 每次改版在最上面加一筆；版本更新後第一次開啟會自動彈出新內容，☰ 選單也可隨時查看
 const CHANGELOG = [
+  { v: '2026-10-18.26', t: ['新增「我的強化」清單：隨時查看已拿到的強化卡、張數與累計效果，並提示下次選牌的時機（棋盤下方的 🃏 按鈕）', '強化卡牌表改為可維護：說明可由效果自動產生、可單張停用、格式有誤的卡會被忽略並警告（見 games/CARDS.md）'] },
   { v: '2026-10-18.25', t: ['新增「強化卡牌」：開局與每 10 回合三選一，包含加強火力／射程／血量、象的回復與防空範圍等 22 種強化', '開始畫面可開關強化卡牌；新增本「更新內容」視窗'] },
   { v: '2026-10-18.24', t: ['炮的最小距離改為 4 格，近距離毫無辦法'] },
   { v: '2026-10-18.23', t: ['象可攻擊田字對角點（象眼被塞會被擋）', '傌的火箭冷卻縮短為 1 回合'] },
@@ -1601,7 +1682,7 @@ $('mLog').onclick = () => showLog(true);
 
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.25';
+const VERSION = '2026-10-18.26';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
