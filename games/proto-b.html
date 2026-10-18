@@ -35,6 +35,7 @@
   #lobby button small { color:#6b5a3a; }
   #lobby .row { display:flex; gap:6px; }
   #lobby .row button { width:auto; white-space:nowrap; }
+  #lobby .lv button { flex:1; padding:7px 0; text-align:center; font-size:14px; line-height:1.3; }
   #lobby input { flex:1; min-width:0; font:inherit; padding:6px 8px; border-radius:4px; border:0; }
   #newver { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); z-index:20; background:#2ecc71; color:#08311a;
             font-weight:700; box-shadow:0 4px 14px #0008; padding:10px 18px; border-radius:20px; }
@@ -63,6 +64,10 @@
   <button id="mHost">建立房間（我執紅先手）</button>
   <div class="row"><input id="roomIn" inputmode="numeric" maxlength="4" placeholder="輸入 4 位數房號"><button id="mJoin">加入（執黑）</button></div>
   <div id="netStatus"></div>
+  <h3>🤖 與電腦對戰（我執紅先手）</h3>
+  <div class="row lv">
+    <button data-lv="1">1<br>新手</button><button data-lv="2">2<br>簡單</button><button data-lv="3">3<br>普通</button><button data-lv="4">4<br>困難</button><button data-lv="5">5<br>大師</button>
+  </div>
   <h3>其他</h3>
   <button id="mRestart">↺ 重新開始這局</button>
   <button id="mReload">🔄 重新整理（載入最新版）</button>
@@ -107,7 +112,7 @@ let moved = false, firedPiece = null, sel = null;   // moved：本回合已移�
 // 對戰模式：local＝同裝置並排、face＝同裝置面對面（黑方文字倒轉）、online＝兩台裝置連線
 let mode = 'local', mySide = 0, conn = null, pendingEnd = null;
 const online = () => mode === 'online';
-const myTurn = () => !online() || turn === mySide;
+const myTurn = () => (!online() && mode !== 'ai') || turn === mySide;   // 連線或對電腦時，只能操作自己那方
 const viewFlip = () => online() && mySide === 1;   // 連線時執黑的一方，棋盤轉 180° 讓自己在下方
 // 文字朝向：讓該方玩家讀起來是正的
 const textAng = side => (viewFlip() ? Math.PI : 0) + (mode === 'face' && side === 1 ? Math.PI : 0);
@@ -232,12 +237,14 @@ function reset() {
       const T = TYPES[t];
       pieces.push({ s, t, T, x: gx(c), y: gy(s ? 9 - r : r), vx: 0, vy: 0, hp: T.hp, hd: s ? Math.PI / 2 : -Math.PI / 2, flash: 0, recoil: 0, cd: 0 });
     }
+  aiGen++; aiBusy = false; aiPlan = null;   // 取消還沒執行的電腦動作
   turn = 0; state = 'aim'; sel = null; fx = []; moved = false; firedPiece = null; winner = null; targets = []; parts = []; decals = []; shake = 0;
   updateHeader(); $('skip').disabled = true;
   setMsg('拉動己方棋子移動（輕點＝原地不動），停下後點選要攻擊的敵人。');
 }
 function updateHeader() {
-  $('turn').textContent = online() ? (myTurn() ? `你的回合（${SIDE[turn].name}）` : `對手回合（${SIDE[turn].name}）`) : SIDE[turn].name + ' 回合';
+  $('turn').textContent = online() ? (myTurn() ? `你的回合（${SIDE[turn].name}）` : `對手回合（${SIDE[turn].name}）`)
+    : mode === 'ai' ? (myTurn() ? '你的回合' : `電腦回合・${AI_LEVELS[aiLevel]}`) : SIDE[turn].name + ' 回合';
   $('turn').style.color = turn ? '#ddd' : '#ff7b6b';
   // 面對面：訊息列移到目前玩家那一側（黑方在上、文字倒轉）
   const bar = $('bar'), face = mode === 'face';
@@ -614,6 +621,7 @@ function update(dt) {
   fx = fx.filter(f => f.t > 0);
   finished.forEach(f => f.done && f.done());
   updParts(dt);
+  aiTick();
 }
 // 彈體目前位置（火箭加速、砲彈拋物線）
 function projPos(f) {
@@ -661,7 +669,7 @@ cv.addEventListener('pointerdown', e => {
   const m = pos(e), near = (x, y, r = R + 6) => Math.hypot(x - m.x, y - m.y) < r;
   SFX.init();
   if (state === 'over') { restart(); return; }
-  if (!myTurn()) { setMsg('還沒輪到你，等待對手操作…'); return; }
+  if (!myTurn()) { setMsg(mode === 'ai' ? '電腦思考中…' : '還沒輪到你，等待對手操作…'); return; }
   if (state === 'target') {   // 移動後：點準星開火，或按「不射擊」
     const t = targets.find(t => t.ok && near(t.p.x, t.p.y, R + 8));
     if (t) fireAt(t.p);
@@ -976,7 +984,7 @@ function draw() {
   if (state === 'over') {
     ctx.fillStyle = '#000a'; ctx.fillRect(0, 0, W, H);
     ctx.textAlign = 'center';
-    const title = online() ? (winner === mySide ? '你贏了！' : '你輸了…') : SIDE[winner].name + ' 勝利！';
+    const title = online() || mode === 'ai' ? (winner === mySide ? '你贏了！' : mode === 'ai' ? '電腦獲勝…' : '你輸了…') : SIDE[winner].name + ' 勝利！';
     // 面對面時上下各一份，兩位玩家都看得到
     for (const ang of mode === 'face' ? [0, Math.PI] : [0]) {
       ctx.save(); ctx.translate(W / 2, H / 2); ctx.rotate(ang);
@@ -994,9 +1002,145 @@ $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>�
   Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${(T.dist / C).toFixed(1)}</td>` +
     `<td>${T.guard ? '護衛' : T.aa ? '攔截 ' + (T.aa / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${T.guard ? '-' : T.aa ? '-' : hearts(T.dmg)}</td>` +
     `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；射後裝填 ${T.reload} 回合` : T.guard ? '限九宮斜走一格；帥被攻擊時衝出來替帥擋下（炮的波及擋不住）' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（冷卻 ${T.reload} 回合）；不能攻擊；過河後每次只能走一格` : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛' : '直射，會被擋'}</td></tr>`).join('');
+// ===== 電腦對戰（AI） =====
+// 列舉電腦每顆棋子「原地或移到某個可走的點，再攻擊某個目標（或不攻擊）」的所有行動，
+// 用與實際規則相同的函式（scan、shotgunSim、guardFor、interceptorFor）估算傷害來打分。
+// 難度：1 新手＝隨機；2 簡單＝貪心但常失誤；
+//       3、4＝貪心後，對分數最高的前 N 個行動推算「對手最好的反擊」並扣分（3：前 6 個、4：前 12 個）；
+//       5＝再多看一步：我方行動 → 對手最佳反擊 → 我方最佳追擊。
+// 參數由電腦互打調校（權重 0.5 最佳；往前推進的位置分實測沒有幫助，預設關閉）
+const AI_CFG = { 3: { top: 6, w: 0.5, rnd: 0.6, pos: false }, 4: { top: 12, w: 0.5, rnd: 0.3, pos: false },
+                 5: { top: 12, w: 0.5, rnd: 0.1, pos: false, deep: 0.5 } };
+const AI_LEVELS = ['', '新手', '簡單', '普通', '困難', '大師'];
+const AI_DELAY = 450;   // 電腦每步之間的停頓（毫秒），讓玩家看得清楚
+let aiLevel = 3, aiGen = 0, aiBusy = false, aiPlan = null;
+const aiSide = () => 1 - mySide;
+const VALUE = { K: 30, R: 9, N: 7, C: 7, E: 5, G: 4, P: 2 };
+const unitValue = p => p.T === TYPES.P2 ? 4 : VALUE[p.t];
+// a 位於 (x,y)、用武器 T 攻擊 b 時，各棋子會受到多少傷害
+function predictAttack(a, x, y, T, b) {
+  const dm = new Map(), add = (p, d) => { if (d > 0) dm.set(p, (dm.get(p) || 0) + d); }, from = { x, y };
+  if (T.pellets) {
+    for (const [p, n] of shotgunSim(a, b, x, y, T).count) add(guardFor(p, from) || p, pelletDmg(n));
+    return dm;
+  }
+  if (flies(T) && interceptorFor(b.s, b.x, b.y)) return dm;   // 會被防空攔下
+  const g = guardFor(b, from), tgt = g || b;
+  add(tgt, T.dmg);
+  if (T.splash) {
+    let cx = b.x, cy = b.y;
+    if (g) { const d = Math.hypot(x - b.x, y - b.y) || 1; cx = b.x + (x - b.x) / d * R * 1.7; cy = b.y + (y - b.y) / d * R * 1.7; }
+    for (const q of alive()) {
+      if (q === tgt) continue;
+      const d = Math.hypot(q.x - cx, q.y - cy);
+      if (d <= T.splash + 1) add(q, quarter(d <= C + 1 ? T.dmg / 2 : T.dmg / 4));
+    }
+  }
+  return dm;
+}
+// 傷害對 side 方的價值：打敵人加分、誤傷自己扣分；擊毀帥／將決定勝負
+function dmgValue(dm, side) {
+  let v = 0;
+  for (const [p, d] of dm) {
+    const sign = p.s === side ? -1 : 1, kill = d >= p.hp;
+    if (kill && p.t === 'K') v += sign * 10000;
+    v += sign * (Math.min(d, p.hp) / p.T.hp * unitValue(p) * 3 + (kill ? unitValue(p) : 0));
+  }
+  return v;
+}
+function actionsFor(side) {
+  const acts = [];
+  for (const p of alive()) {
+    if (p.s !== side) continue;
+    for (const [x, y, mv] of [[p.x, p.y, false], ...movesFor(p).map(([x, y]) => [x, y, true])]) {
+      const T = p.T.locked && crossed(p.s, y) ? TYPES.P2 : p.T;
+      for (const t of scan(p, x, y, T)) if (t.ok) acts.push({ p, x, y, mv, T, b: t.p });
+      if (mv) acts.push({ p, x, y, mv, T, b: null });
+    }
+  }
+  return acts;
+}
+const attackValue = (a, side) => a.b ? dmgValue(predictAttack(a.p, a.x, a.y, a.T, a.b), side) : 0;
+// 位置分：攻擊棋子往敵帥推進；士守在帥旁；相待在帥附近約 2 格掩護
+function positional(a, side) {
+  const p = a.p, ek = alive().find(q => q.s !== side && q.t === 'K'), mk = alive().find(q => q.s === side && q.t === 'K');
+  const dist = (x, y, q) => q ? Math.hypot(x - q.x, y - q.y) / C : 0;
+  if (p.T.guard) return -dist(a.x, a.y, mk) * 0.3;
+  if (p.T.aa) return -Math.abs(dist(a.x, a.y, mk) - 2) * 0.3;
+  if (p.t === 'K') return 0;
+  return (dist(p.x, p.y, ek) - dist(a.x, a.y, ek)) * 0.15;
+}
+// 暫時套用行動（移動＋傷害）後執行 fn，再還原局面
+function simulate(a, fn) {
+  const save = pieces.map(p => [p.x, p.y, p.hp, p.T]);
+  if (a.b) for (const [q, d] of predictAttack(a.p, a.x, a.y, a.T, a.b)) q.hp = Math.max(0, q.hp - d);
+  a.p.x = a.x; a.p.y = a.y; a.p.T = a.T;
+  try { return fn(); } finally { pieces.forEach((q, i) => { [q.x, q.y, q.hp, q.T] = save[i]; }); }
+}
+// side 方最好的一次攻擊（只看攻擊行動），回傳 {a, v}
+function bestAttack(side) {
+  let best = { a: null, v: 0 };
+  for (const a of actionsFor(side)) if (a.b) { const v = attackValue(a, side); if (v > best.v) best = { a, v }; }
+  return best;
+}
+const bestReply = side => bestAttack(side).v;
+// 推算對手最佳反擊；deep > 0 時再套用該反擊，加上我方接著能打出的最佳攻擊 × deep
+function replyCost(side, deep) {
+  const r = bestAttack(1 - side);
+  if (!deep || !r.a) return r.v;
+  return r.v - deep * simulate(r.a, () => bestReply(side));
+}
+function aiChoose(side = aiSide(), L = aiLevel) {
+  let acts = actionsFor(side);
+  if (!acts.length) return null;
+  const pickRand = list => list[Math.floor(Math.random() * list.length)];
+  if (L === 1) { const atk = acts.filter(a => a.b); return pickRand(atk.length && Math.random() < 0.5 ? atk : acts); }
+  for (const a of acts) a.score = attackValue(a, side) + (L >= 3 && AI_CFG[L].pos ? positional(a, side) : 0);
+  if (L === 2) for (const a of acts) a.score = a.score * (0.5 + Math.random()) + Math.random() * 3;
+  else {
+    const cfg = AI_CFG[L];
+    for (const a of acts) a.score += Math.random() * cfg.rnd;
+    acts.sort((u, v) => v.score - u.score);
+    acts = acts.slice(0, cfg.top);
+    for (const a of acts) a.score -= cfg.w * simulate(a, () => replyCost(side, cfg.deep || 0));
+  }
+  return acts.reduce((m, a) => a.score > m.score ? a : m);
+}
+// 電腦：選好行動後出發或原地開火
+function aiAct() {
+  const a = aiChoose();
+  aiPlan = a;
+  if (!a) { setMsg('電腦沒有可走的棋，跳過。'); state = 'fire'; timer = 0.5; return; }
+  if (a.mv) { sel = { p: a.p, moves: [[a.x, a.y]], dest: [a.x, a.y], scan: [] }; go([a.x, a.y]); }
+  else { mover = a.p; moved = false; fireAt(a.b); }
+}
+// 電腦：移動後選目標（優先原本計畫的目標）
+function aiTarget() {
+  const ok = targets.filter(t => t.ok), side = aiSide();
+  let t = aiPlan && aiPlan.b && ok.find(t => t.p === aiPlan.b);
+  if (!t && ok.length) {
+    if (aiLevel === 1) t = ok[Math.floor(Math.random() * ok.length)];
+    else {
+      const v = u => dmgValue(predictAttack(mover, mover.x, mover.y, mover.T, u.p), side);
+      const best = ok.reduce((m, u) => v(u) > v(m) ? u : m);
+      if (v(best) > 0) t = best;
+    }
+  }
+  if (t) fireAt(t.p); else { targets = []; state = 'fire'; timer = 0.2; setSkip(false); }
+}
+function aiTick() {
+  if (mode !== 'ai' || turn !== aiSide() || aiBusy || winner !== null) return;
+  const step = state === 'aim' ? aiAct : state === 'target' && moved ? aiTarget : null;
+  if (!step) return;
+  aiBusy = true;
+  if (state === 'aim') setMsg(`電腦（${AI_LEVELS[aiLevel]}）思考中…`);
+  const gen = aiGen;
+  setTimeout(() => { if (gen !== aiGen) return; aiBusy = false; step(); }, AI_DELAY);
+}
+
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.8';
+const VERSION = '2026-10-18.9';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
@@ -1143,6 +1287,10 @@ $('mFace').onclick = () => setMode('face');
 $('mHost').onclick = () => host();
 $('mJoin').onclick = () => join($('roomIn').value);
 $('roomIn').onkeydown = e => { if (e.key === 'Enter') join($('roomIn').value); };
+document.querySelectorAll('#lobby .lv button').forEach(b => b.onclick = () => {
+  aiLevel = +b.dataset.lv; setMode('ai');
+  setMsg(`對電腦（${AI_LEVELS[aiLevel]}）：你執紅先手，點選棋子開始。`);
+});
 $('mRestart').onclick = () => { restart(); $('lobby').hidden = true; };
 
 reset();
