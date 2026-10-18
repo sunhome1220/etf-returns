@@ -87,14 +87,14 @@ const gx = c => M + c * C, gy = r => M + r * C;
 const SIDE = [{ name: '紅方', col: '#c0392b' }, { name: '黑方', col: '#1d1d1d' }];
 const TYPES = {
   K: { n: ['帥', '將'], hp: 5, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 3,   w: '手槍',   snd: 'pistol', proj: 'bullet', palace: true },
-  R: { n: ['俥', '車'], hp: 4, dist: 7 * C,   range: 2.6 * C, min: 0,     dmg: 1, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst' },
-  N: { n: ['傌', '馬'], hp: 3, dist: 4.5 * C, range: 3.4 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket' },
-  C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', indirect: true, reload: 3, splash: 1.5 * C },   // 射後需裝填 3 回合；上下左右相鄰受 1/2 傷害、斜角受 1/4
+  R: { n: ['俥', '車'], hp: 4, dist: 7 * C,   range: 3 * C,   min: 0,     dmg: 2, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst' },
+  N: { n: ['傌', '馬'], hp: 3, dist: 4.5 * C, range: 3.4 * C, min: 0,     dmg: 1.5, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket' },
+  C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 1.5, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', indirect: true, reload: 3, splash: 1.5 * C },   // 射後需裝填 3 回合；上下左右相鄰受 1/2 傷害、斜角受 1/4（無條件捨去到 ¼ 心）
   // 相／象：治療單位，不能攻擊；每回合開始替 2.5 格內友軍補 ½ 心；過河後每次只能走一格
   E: { n: ['相', '象'], hp: 3, dist: 3 * C,   range: 0,       min: 0,     dmg: 0, mass: 1.5, w: '治療',   heal: 2.5 * C },
   P: { n: ['兵', '卒'], hp: 2, dist: 1 * C,   range: 1.8 * C, min: 0,     dmg: 1, mass: 1,   w: '步槍',   snd: 'rifle',  proj: 'bullet', tag: '（未過河）', locked: true },
-  // 過河兵：自由移動，霰彈槍 9 發彈丸呈扇形，越近命中越多（每 3 發 1 心，最多 3 心）
-  P2: { n: ['兵', '卒'], hp: 2, dist: 3.5 * C, range: 2.6 * C, min: 0,    dmg: 3, mass: 1,   w: '霰彈槍', snd: 'shotgun', proj: 'pellets', tag: '（過河）',
+  // 過河兵：自由移動，霰彈槍 9 發彈丸呈扇形，越近命中越多（傷害與命中數成正比，全中 2 心）
+  P2: { n: ['兵', '卒'], hp: 2, dist: 3.5 * C, range: 2.6 * C, min: 0,    dmg: 2, mass: 1,   w: '霰彈槍', snd: 'shotgun', proj: 'pellets', tag: '（過河）',
         pellets: 9, cone: 30 * Math.PI / 180 },
 };
 const LAYOUT = [['K',4,9],['R',0,9],['R',8,9],['N',1,9],['N',7,9],['E',2,9],['E',6,9],['C',1,7],['C',7,7],
@@ -113,7 +113,12 @@ const $ = id => document.getElementById(id);
 const alive = () => pieces.filter(p => p.hp > 0);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const setMsg = s => $('info').textContent = s;
-const hearts = n => n === 0.5 ? '½♥' : '♥'.repeat(Math.floor(n)) + (n % 1 ? '½' : '');   // 血量與傷害都以愛心計（相可補半顆）
+// 血量與傷害都以愛心計，最小單位 ¼ 心
+const quarter = x => Math.floor(x * 4 + 1e-9) / 4;
+const hearts = n => {
+  const w = Math.floor(n), f = { 0.25: '¼', 0.5: '½', 0.75: '¾' }[n - w] || '';
+  return w ? '♥'.repeat(w) + f : f + '♥';
+};
 const rnd = k => (Math.random() - 0.5) * 2 * k;
 
 // ----- 音效（Web Audio 即時合成，不需要音檔） -----
@@ -379,7 +384,7 @@ function shotgunSim(a, b, x = a.x, y = a.y, T = a.T) {
   }
   return { rays, count };
 }
-const pelletDmg = n => n ? Math.max(1, Math.floor(n / 3)) : 0;
+const pelletDmg = n => n ? Math.max(0.25, quarter(n / TYPES.P2.pellets * TYPES.P2.dmg)) : 0;
 
 // 回傳 {p, ok, why, est}：在射程內的敵人、能否射擊、預估傷害
 function scan(a, x = a.x, y = a.y, T = a.T) {
@@ -495,7 +500,8 @@ function impact(a, b, dmg = a.T.dmg, note = '') {
     for (const q of alive()) {
       const d = Math.hypot(q.x - b.x, q.y - b.y);
       if (q === b || d > T.splash + 1) continue;
-      all.push(impact(a, q, d <= C + 1 ? T.dmg / 2 : T.dmg / 4, '（波及）'));
+      const dmg = quarter(d <= C + 1 ? T.dmg / 2 : T.dmg / 4);
+      if (dmg > 0) all.push(impact(a, q, dmg, '（波及）'));
     }
   }
   if (!note.includes('波及')) setMsg(`${T.n[a.s]} 用${T.w}攻擊 ` + all.join('；'));
@@ -700,11 +706,11 @@ function drawPiece(p) {
   // 血量愛心：實心＝剩餘，空心＝已失去
   const n = p.T.hp, gap = 9;
   for (let i = 0; i < n; i++) {
-    const hx = (i - (n - 1) / 2) * gap, full = p.hp >= i + 1, half = !full && p.hp >= i + 0.5;
+    const hx = (i - (n - 1) / 2) * gap, f = Math.max(0, Math.min(1, p.hp - i)), full = f >= 1, part = f > 0 && !full;
     heart(hx, R + 9, 10);
     ctx.fillStyle = full ? '#e8202a' : '#0003'; ctx.fill();
-    if (half) { ctx.save(); ctx.clip(); ctx.fillStyle = '#e8202a'; ctx.fillRect(hx - 6, R + 3, 6, 12); ctx.restore(); }   // 半顆心
-    ctx.strokeStyle = full || half ? '#fff' : '#0006'; ctx.lineWidth = 1; ctx.stroke();
+    if (part) { ctx.save(); ctx.clip(); ctx.fillStyle = '#e8202a'; ctx.fillRect(hx - 5, R + 3, 10 * f, 12); ctx.restore(); }   // 部分的心（¼、½、¾）
+    ctx.strokeStyle = full || part ? '#fff' : '#0006'; ctx.lineWidth = 1; ctx.stroke();
   }
   ctx.restore();
 }
@@ -882,7 +888,7 @@ $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>�
     `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；射後裝填 ${T.reload} 回合` : T.palace ? '限九宮' : T.heal ? '不能攻擊；每回合替範圍內友軍補 ½ 心；過河後每次只能走一格' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛' : '直射，會被擋'}</td></tr>`).join('');
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.3';
+const VERSION = '2026-10-18.4';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
