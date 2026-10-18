@@ -24,6 +24,19 @@
   #quick:not(.on) { opacity:.6; }
   header, header * { white-space:nowrap; }
   header span button { padding:6px 8px; font-size:14px; }
+  #bar.flip { transform:rotate(180deg); }   /* 面對面：輪到黑方時訊息列轉向黑方 */
+  #lobby { position:fixed; inset:0; background:#000b; display:flex; align-items:center; justify-content:center; z-index:10; padding:16px; }
+  #lobby[hidden] { display:none; }
+  #lobby .box { background:#2b3a31; border:1px solid #4d6355; border-radius:10px; padding:18px; width:100%; max-width:380px; -webkit-user-select:text; user-select:text; }
+  #lobby h2 { margin:0 0 12px; font-size:19px; color:#e8c88a; }
+  #lobby h3 { margin:14px 0 6px; font-size:15px; color:#cfe0d4; }
+  #lobby button { width:100%; margin:4px 0; text-align:left; }
+  #lobby small { color:#a9bcaf; }
+  #lobby button small { color:#6b5a3a; }
+  #lobby .row { display:flex; gap:6px; }
+  #lobby .row button { width:auto; white-space:nowrap; }
+  #lobby input { flex:1; min-width:0; font:inherit; padding:6px 8px; border-radius:4px; border:0; }
+  #netStatus { margin-top:10px; min-height:1.5em; color:#ffd166; font-size:14px; word-break:break-all; }
   table { margin:10px 0 20px; border-collapse:collapse; font-size:13px; }
   td, th { padding:3px 8px; border-bottom:1px solid #3d4f44; text-align:center; }
 </style>
@@ -32,11 +45,23 @@
 <header>
   <a href="index.html">← 選單</a>
   <span id="turn"></span>
-  <span><button id="quick" title="快速模式：放開立即出發，不需確認">⚡快速</button> <button id="mute" title="音效開關">🔊</button> <button id="restart">重來</button></span>
+  <span><button id="quick" title="快速模式：放開立即出發，不需確認">⚡快速</button> <button id="mute" title="音效開關">🔊</button> <button id="menu" title="對戰模式／重新開始">☰</button></span>
 </header>
 <div id="bar"><div id="info"></div><button id="fire" hidden>出發</button><button id="skip" disabled>不射擊</button></div>
 <canvas id="cv"></canvas>
 <table id="legend"></table>
+<div id="lobby" hidden><div class="box">
+  <h2>對戰模式</h2>
+  <button id="mLocal">📱 同裝置・並排<br><small>兩人輪流用同一支手機／電腦</small></button>
+  <button id="mFace">🔄 同裝置・面對面<br><small>平板放桌上，兩人對坐，黑方文字倒轉</small></button>
+  <h3>🌐 兩台裝置連線</h3>
+  <button id="mHost">建立房間（我執紅先手）</button>
+  <div class="row"><input id="roomIn" inputmode="numeric" maxlength="4" placeholder="輸入 4 位數房號"><button id="mJoin">加入（執黑）</button></div>
+  <div id="netStatus"></div>
+  <h3>其他</h3>
+  <button id="mRestart">↺ 重新開始這局</button>
+  <button id="mClose">✕ 關閉</button>
+</div></div>
 <script>
 // ===== 原型 B：移動 + 手動瞄準 =====
 // 回合 = ① 拉動一台車（或輕點原地不動） ② 從射程內的敵人中點選目標開火。
@@ -67,7 +92,14 @@ const LAYOUT = [['K',4,9],['R',0,9],['R',8,9],['N',1,9],['N',7,9],['C',1,7],['C'
                 ['P',0,6],['P',2,6],['P',4,6],['P',6,6],['P',8,6]];
 
 let pieces, turn, state, drag, mover, timer, fx, winner, targets;
-let moved = false, firedPiece = null, dragging = false;   // dragging：手指正按著拉   // moved：本回合是否已移動（未移動才能取消）
+let moved = false, firedPiece = null, dragging = false;
+// 對戰模式：local＝同裝置並排、face＝同裝置面對面（黑方文字倒轉）、online＝兩台裝置連線
+let mode = 'local', mySide = 0, conn = null, pendingEnd = null;
+const online = () => mode === 'online';
+const myTurn = () => !online() || turn === mySide;
+const viewFlip = () => online() && mySide === 1;   // 連線時執黑的一方，棋盤轉 180° 讓自己在下方
+// 文字朝向：讓該方玩家讀起來是正的
+const textAng = side => (viewFlip() ? Math.PI : 0) + (mode === 'face' && side === 1 ? Math.PI : 0);   // dragging：手指正按著拉   // moved：本回合是否已移動（未移動才能取消）
 const $ = id => document.getElementById(id);
 const alive = () => pieces.filter(p => p.hp > 0);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -189,8 +221,13 @@ function reset() {
   setMsg('拉動己方棋子移動（輕點＝原地不動），停下後點選要攻擊的敵人。');
 }
 function updateHeader() {
-  $('turn').textContent = SIDE[turn].name + ' 回合';
+  $('turn').textContent = online() ? (myTurn() ? `你的回合（${SIDE[turn].name}）` : `對手回合（${SIDE[turn].name}）`) : SIDE[turn].name + ' 回合';
   $('turn').style.color = turn ? '#ddd' : '#ff7b6b';
+  // 面對面：訊息列移到目前玩家那一側（黑方在上、文字倒轉）
+  const bar = $('bar'), face = mode === 'face';
+  if (face && turn === 0) cv.after(bar); else cv.before(bar);
+  bar.classList.toggle('flip', face && turn === 1);
+  if (online() && !myTurn() && state === 'aim') setMsg('等待對手操作…');
 }
 
 // ----- 物理 -----
@@ -313,7 +350,7 @@ function promoteCrossed() {
   for (const p of alive())
     if (p.T.locked && crossed(p.s, p.y)) {
       p.T = TYPES.P2; p.flash = 0.3;
-      fx.push({ k: 'txt', x: p.x, y: p.y - R - 6, txt: '過河！霰彈槍', t: 1.4, T: 1.4, col: '#d48a00' });
+      fx.push({ k: 'txt', x: p.x, y: p.y - R - 6, txt: '過河！霰彈槍', t: 1.4, T: 1.4, col: '#d48a00', side: p.s });
       emit(p.x, p.y, 14, { k: 'spark', sp: 150, life: 0.5, size: 2.5, col: '#ffd23f' });
       SFX.play('promote');
     }
@@ -328,6 +365,7 @@ function setSkip(on) {
 }
 function onStop() {
   promoteCrossed();
+  if (online() && !myTurn()) { if (pendingEnd) applyEnd(); else state = 'wait'; return; }
   if (mover.hp <= 0) { state = 'fire'; timer = 0.6; return; }
   targets = scan(mover);
   if (targets.some(t => t.ok)) {
@@ -385,7 +423,7 @@ function shoot(a, b) {
 function impact(a, b, dmg = a.T.dmg, note = '') {
   const T = a.T, heavy = T.proj === 'rocket' || T.proj === 'shell';
   b.hp = Math.max(0, b.hp - dmg); b.flash = 0.35;
-  fx.push({ k: 'txt', x: b.x, y: b.y - R, txt: '-' + hearts(dmg), t: 1, T: 1 });
+  fx.push({ k: 'txt', x: b.x, y: b.y - R, txt: '-' + hearts(dmg), t: 1, T: 1, side: b.s });
   if (b.hp <= 0) { explode(b.x, b.y, true); SFX.play('boom', true); }
   else if (heavy) { explode(b.x, b.y, false); SFX.play('boom', false); }
   else { emit(b.x, b.y, 10, { k: 'spark', sp: 220, life: 0.3, size: 2.5, col: '#ffe066' }); flashAt(b.x, b.y, 18); SFX.play('hit'); shake = Math.max(shake, 2); }
@@ -400,11 +438,16 @@ function checkWin() {
     if (!pieces.some(p => p.s === s && p.t === 'K' && p.hp > 0)) winner = 1 - s;
 }
 function endTurn() {
-  if (winner !== null) { state = 'over'; SFX.play('win'); return; }
+  if (online() && !myTurn()) {   // 對手的回合：動畫播完後等對方送來的結果
+    if (pendingEnd) applyEnd(); else state = 'wait';
+    return;
+  }
+  if (winner !== null) { state = 'over'; SFX.play('win'); send({ t: 'end', snap: snapshot() }); return; }
   // 裝填倒數：每結束一個自己的回合減 1（開火那回合不算）
   for (const p of pieces) if (p.s === turn && p.cd > 0 && p !== firedPiece) p.cd--;
   firedPiece = null;
   turn = 1 - turn; state = 'aim'; targets = []; moved = false; setSkip(false); updateHeader();
+  send({ t: 'end', snap: snapshot() });
 }
 function update(dt) {
   if (state === 'moving') {
@@ -439,15 +482,20 @@ function projPos(f) {
 // ----- 輸入 -----
 function pos(e) {
   const r = cv.getBoundingClientRect();
-  return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
+  const x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
+  return viewFlip() ? { x: W - x, y: H - y } : { x, y };
 }
 cv.addEventListener('pointerdown', e => {
   const m = pos(e);
   SFX.init();
-  if (state === 'over') { reset(); return; }
+  if (state === 'over') { restart(); return; }
+  if (!myTurn()) { setMsg('還沒輪到你，等待對手操作…'); return; }
   if (state === 'target') {
     const t = targets.find(t => t.ok && Math.hypot(t.p.x - m.x, t.p.y - m.y) < R + 8);
-    if (t) { targets = []; setSkip(false); state = 'fire'; timer = 0.5; shoot(mover, t.p); return; }
+    if (t) {
+      send({ t: 'shoot', a: pieces.indexOf(mover), b: pieces.indexOf(t.p), snap: snapshot() });
+      targets = []; setSkip(false); state = 'fire'; timer = 0.5; shoot(mover, t.p); return;
+    }
     if (moved) return;
     cancelSelect();          // 還沒移動：點別處＝取消；點己方棋子＝直接改操作它
   }
@@ -498,6 +546,7 @@ function launch() {
   SFX.play('launch', pw);
   emit(p.x - Math.cos(p.hd) * R, p.y - Math.sin(p.hd) * R, 6, { k: 'smoke', sp: 70, life: 0.6, size: 8, col: '#b89a6a', dir: p.hd + Math.PI, spread: 1.4 });
   state = 'moving'; setSkip(false);
+  send({ t: 'launch', i: pieces.indexOf(p), vx, vy });
 }
 $('fire').onclick = () => { if (state === 'armed') launch(); };
 $('skip').onclick = () => {
@@ -519,7 +568,7 @@ cv.addEventListener('pointercancel', () => {
   if (state === 'armed') { if (drag.prev) { Object.assign(drag, drag.prev); drag.prev = null; } }
   else drag = null;
 });
-$('restart').onclick = () => { SFX.init(); reset(); };
+
 $('mute').textContent = SFX.muted ? '🔇' : '🔊';
 $('mute').onclick = () => { SFX.init(); $('mute').textContent = SFX.toggle() ? '🔇' : '🔊'; };
 // 快速模式：放開立即出發（不需確認），記在瀏覽器
@@ -537,6 +586,12 @@ $('quick').onclick = () => {
 // ----- 繪圖 -----
 function line(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
 function circle(x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); }
+// 以 (x,y) 為中心旋轉 ang 後，在相對位移 dy 處寫字（可加白邊）
+function textAt(txt, x, y, dy, ang, fill, stroke) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+  if (stroke) { ctx.strokeStyle = stroke; ctx.strokeText(txt, 0, dy); }
+  ctx.fillStyle = fill; ctx.fillText(txt, 0, dy); ctx.restore();
+}
 function heart(x, y, s) {
   ctx.beginPath(); ctx.moveTo(x, y + s * 0.4);
   ctx.bezierCurveTo(x - s * 0.15, y + s * 0.25, x - s * 0.5, y + s * 0.05, x - s * 0.5, y - s * 0.15);
@@ -557,7 +612,7 @@ function drawBoard() {
   for (const r of [0, 7]) { line(gx(3), gy(r), gx(5), gy(r + 2)); line(gx(5), gy(r), gx(3), gy(r + 2)); }
   ctx.lineWidth = 3; ctx.strokeRect(gx(0) - 6, gy(0) - 6, 8 * C + 12, 9 * C + 12);
   ctx.fillStyle = '#4a5f6b'; ctx.font = 'bold 22px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('楚河（泥濘）', gx(2), gy(4.5)); ctx.fillText('漢界（泥濘）', gx(6), gy(4.5));
+  textAt('楚河（泥濘）', gx(2), gy(4.5), 0, textAng(0), '#4a5f6b'); textAt('漢界（泥濘）', gx(6), gy(4.5), 0, textAng(1), '#4a5f6b');
 }
 function drawPiece(p) {
   ctx.save();
@@ -567,7 +622,7 @@ function drawPiece(p) {
   ctx.fillStyle = '#333';
   for (const [x, y] of [[-11, -R], [11, -R], [-11, R], [11, R]]) ctx.fillRect(x - 5, y - 3, 10, 6);
   ctx.fillStyle = SIDE[p.s].col; ctx.beginPath(); ctx.moveTo(R + 7, 0); ctx.lineTo(R - 1, -5); ctx.lineTo(R - 1, 5); ctx.fill();
-  ctx.rotate(-p.hd);
+  ctx.rotate(-p.hd + textAng(p.s));   // 棋子文字、愛心朝向自己的玩家
   circle(0, 0, R); ctx.fillStyle = '#f6e3b8'; ctx.fill();
   ctx.strokeStyle = SIDE[p.s].col; ctx.lineWidth = 2.5; ctx.stroke();
   circle(0, 0, R - 4); ctx.lineWidth = 1; ctx.stroke();
@@ -607,12 +662,11 @@ function marks(list) {
       line(x, y - R - 12, x, y - R - 2); line(x, y + R + 2, x, y + R + 12);
       if (t.est) {   // 預估傷害
         ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3;
-        ctx.strokeStyle = '#fff'; ctx.strokeText('-' + hearts(t.est), x, y - R - 18);
-        ctx.fillStyle = '#e8202a'; ctx.fillText('-' + hearts(t.est), x, y - R - 18);
+        textAt('-' + hearts(t.est), x, y, -R - 18, textAng(turn), '#e8202a', '#fff');
       }
     } else {
       ctx.strokeStyle = '#7778'; ctx.lineWidth = 2; circle(x, y, R + 5); ctx.stroke();
-      ctx.fillStyle = '#555'; ctx.font = 'bold 12px sans-serif'; ctx.fillText(t.why, x, y - R - 12);
+      ctx.font = 'bold 12px sans-serif'; textAt(t.why, x, y, -R - 12, textAng(turn), '#555');
     }
   }
 }
@@ -679,6 +733,7 @@ function drawProj(f) {
 }
 function draw() {
   ctx.save();
+  if (viewFlip()) { ctx.translate(W, H); ctx.rotate(Math.PI); }
   if (shake) ctx.translate(rnd(shake), rnd(shake));
   drawBoard();
   drawDecals();
@@ -717,16 +772,22 @@ function draw() {
   for (const f of fx) if (f.k === 'txt') {
     const a = f.t / f.T;
     ctx.globalAlpha = Math.min(1, a * 2); ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
-    ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.strokeText(f.txt, f.x, f.y - (1 - a) * 30);
-    ctx.fillStyle = f.col || '#e00'; ctx.fillText(f.txt, f.x, f.y - (1 - a) * 30);
+    ctx.lineWidth = 3; textAt(f.txt, f.x, f.y, -(1 - a) * 30, textAng(f.side ?? turn), f.col || '#e00', '#fff');
     ctx.globalAlpha = 1;
   }
   ctx.restore();
   if (state === 'over') {
     ctx.fillStyle = '#000a'; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = winner ? '#fff' : '#ff7b6b'; ctx.font = 'bold 44px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(SIDE[winner].name + ' 勝利！', W / 2, H / 2 - 10);
-    ctx.fillStyle = '#fff'; ctx.font = '18px sans-serif'; ctx.fillText('點擊棋盤重新開始', W / 2, H / 2 + 34);
+    ctx.textAlign = 'center';
+    const title = online() ? (winner === mySide ? '你贏了！' : '你輸了…') : SIDE[winner].name + ' 勝利！';
+    // 面對面時上下各一份，兩位玩家都看得到
+    for (const ang of mode === 'face' ? [0, Math.PI] : [0]) {
+      ctx.save(); ctx.translate(W / 2, H / 2); ctx.rotate(ang);
+      const dy = mode === 'face' ? 90 : 0;
+      ctx.fillStyle = winner ? '#fff' : '#ff7b6b'; ctx.font = 'bold 44px sans-serif'; ctx.fillText(title, 0, dy - 10);
+      ctx.fillStyle = '#fff'; ctx.font = '18px sans-serif'; ctx.fillText('點擊棋盤重新開始', 0, dy + 34);
+      ctx.restore();
+    }
   }
 }
 let last = performance.now();
@@ -736,8 +797,139 @@ $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>�
   Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${(T.dist / C).toFixed(1)}</td>` +
     `<td>${T.min ? (T.min / C).toFixed(1) + '～' : ''}${(T.range / C).toFixed(1)}</td><td style="color:#e8202a">${hearts(T.dmg)}</td>` +
     `<td>${T.indirect ? `曲射，越過障礙；射後裝填 ${T.reload} 回合` : T.palace ? '限九宮' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛' : '直射，會被擋'}</td></tr>`).join('');
+// ===== 對戰模式與連線 =====
+// 連線做法：輪到誰，誰的裝置就是「主控」——它算物理、把動作（出發／開火）送給對方播放動畫，
+// 回合結束時送出完整局面快照，對方直接套用，兩台裝置就不會因浮點誤差而越跑越不同步。
+function snapshot() {
+  return { turn, winner, ps: pieces.map(p => [p.x, p.y, p.hp, p.cd, p.T === TYPES.P2 ? 1 : 0, p.hd]) };
+}
+function applySnap(sn) {
+  sn.ps.forEach(([x, y, hp, cd, pr, hd], i) => {
+    const p = pieces[i];
+    Object.assign(p, { x, y, hp, cd, hd, vx: 0, vy: 0 });
+    if (pr) p.T = TYPES.P2;
+  });
+  turn = sn.turn; winner = sn.winner;
+}
+function applyEnd() {
+  const sn = pendingEnd; pendingEnd = null;
+  applySnap(sn);
+  targets = []; moved = false; drag = null; setSkip(false);
+  if (winner !== null) { state = 'over'; SFX.play('win'); }
+  else { state = 'aim'; setMsg(myTurn() ? '輪到你了！拉動己方棋子移動，停下後點選要攻擊的敵人。' : '等待對手操作…'); }
+  updateHeader();
+}
+function send(m) { if (online() && conn && conn.open) conn.send(m); }
+function onNet(m) {
+  if (m.t === 'reset') { reset(); setMsg('對手重新開始了一局。'); return; }
+  if (m.t === 'launch') {
+    const p = pieces[m.i];
+    p.vx = m.vx; p.vy = m.vy; p.hd = Math.atan2(m.vy, m.vx); mover = p;
+    SFX.play('launch', 0.7); state = 'moving'; setMsg('對手出發！');
+  } else if (m.t === 'shoot') {
+    applySnap(m.snap);   // 先對齊停下的位置再播開火
+    state = 'fire'; timer = 0.5; mover = pieces[m.a];
+    shoot(pieces[m.a], pieces[m.b]);
+  } else if (m.t === 'end') {
+    pendingEnd = m.snap;
+    if (state !== 'moving' && state !== 'fire') applyEnd();   // 否則等動畫播完（onStop／endTurn）再套用
+  }
+}
+function restart() {
+  reset();
+  send({ t: 'reset' });
+}
+function setMode(m, side = 0) {
+  if (m !== 'online' && conn) { try { conn.close(); } catch (e) {} conn = null; }
+  mode = m; mySide = side; pendingEnd = null;
+  reset();
+  $('lobby').hidden = true;
+}
+const netStatus = s => $('netStatus').innerHTML = s;
+
+// --- PeerJS（WebRTC 點對點；房號＝在免費的 PeerJS 公用伺服器上的 ID） ---
+let peer = null;
+const peerId = code => 'rc-chess-b-' + code;
+function loadPeer() {
+  return window.Peer ? Promise.resolve() : new Promise((ok, fail) => {
+    const sc = document.createElement('script');
+    sc.src = 'vendor/peerjs.min.js'; sc.onload = ok; sc.onerror = () => fail(new Error('載入連線模組失敗'));
+    document.head.appendChild(sc);
+  });
+}
+const netErr = e => ({ network: '連不上配對伺服器，請檢查網路', 'server-error': '配對伺服器暫時無法使用，請稍後再試',
+                       'browser-incompatible': '這個瀏覽器不支援連線對戰' })[e.type] || (e.type || e.message);
+function bindConn(c, side) {
+  conn = c;
+  c.on('data', onNet);
+  c.on('open', () => {
+    mode = 'online'; mySide = side; pendingEnd = null;
+    reset(); $('lobby').hidden = true;
+    netStatus('✅ 已連線');
+    setMsg(side === 0 ? '對手已加入！你執紅先手，開始吧。' : '已加入房間！你執黑，等待紅方先手…');
+  });
+  c.on('close', () => { if (conn === c) { conn = null; setMsg('⚠ 連線中斷，可按 ☰ 重新建立房間。'); netStatus('⚠ 連線中斷'); } });
+  c.on('error', e => netStatus('⚠ ' + e.message));
+}
+async function host() {
+  netStatus('建立房間中…');
+  try { await loadPeer(); } catch (e) { netStatus('⚠ ' + e.message); return; }
+  if (peer) peer.destroy();
+  const code = String(1000 + Math.floor(Math.random() * 9000));
+  peer = new Peer(peerId(code));
+  peer.on('open', () => {
+    const link = location.href.split('?')[0] + '?room=' + code;
+    netStatus(`房號 <b style="font-size:22px">${code}</b>，等待對手加入…<br>或把連結傳給對方：<br><small>${link}</small>` +
+              `<br><button id="copyLink" style="width:auto">複製連結</button>`);
+    $('copyLink').onclick = () => navigator.clipboard?.writeText(link).then(() => $('copyLink').textContent = '已複製 ✓');
+  });
+  peer.on('connection', c => { if (conn && conn.open) { c.close(); return; } bindConn(c, 0); });
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id') host();   // 房號撞到，換一個
+    else netStatus('⚠ 無法建立房間：' + netErr(e));
+  });
+}
+async function join(code) {
+  code = String(code).trim();
+  if (!/^\d{4}$/.test(code)) { netStatus('請輸入 4 位數房號'); return; }
+  netStatus('連線中…');
+  try { await loadPeer(); } catch (e) { netStatus('⚠ ' + e.message); return; }
+  if (peer) peer.destroy();
+  peer = new Peer();
+  peer.on('open', () => bindConn(peer.connect(peerId(code), { reliable: true, serialization: 'json' }), 1));
+  peer.on('error', e => netStatus(e.type === 'peer-unavailable' ? '⚠ 找不到這個房間，請確認房號' : '⚠ 連線失敗：' + netErr(e)));
+}
+// 測試用：?bc=房名&side=0|1 用 BroadcastChannel 在同一台電腦的兩個分頁之間連線
+function bcConnect(room, side) {
+  const ch = new BroadcastChannel('rc-chess-' + room), hs = {};
+  const c = { open: false, send: m => ch.postMessage(m), close() { ch.close(); }, on: (ev, fn) => hs[ev] = fn };
+  ch.onmessage = e => {
+    if (e.data === 'hello' || e.data === 'ack') {
+      if (e.data === 'hello') ch.postMessage('ack');
+      if (!c.open) { c.open = true; hs.open && hs.open(); }
+    } else hs.data && hs.data(e.data);
+  };
+  bindConn(c, side);
+  ch.postMessage('hello');
+}
+
+$('menu').onclick = () => { SFX.init(); $('lobby').hidden = false; };
+$('mClose').onclick = () => $('lobby').hidden = true;
+$('mLocal').onclick = () => setMode('local');
+$('mFace').onclick = () => setMode('face');
+$('mHost').onclick = () => host();
+$('mJoin').onclick = () => join($('roomIn').value);
+$('roomIn').onkeydown = e => { if (e.key === 'Enter') join($('roomIn').value); };
+$('mRestart').onclick = () => { restart(); $('lobby').hidden = true; };
+
 reset();
 requestAnimationFrame(loop);
+{
+  const q = new URLSearchParams(location.search);
+  if (q.get('bc')) bcConnect(q.get('bc'), +q.get('side') || 0);
+  else if (q.get('room')) { $('lobby').hidden = false; $('roomIn').value = q.get('room'); join(q.get('room')); }
+  else $('lobby').hidden = false;   // 一開始先選對戰模式
+}
 </script>
 </body>
 </html>
