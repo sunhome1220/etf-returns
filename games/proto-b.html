@@ -133,56 +133,137 @@ const hearts = n => {
 const rnd = k => (Math.random() - 0.5) * 2 * k;
 
 // ----- 音效（Web Audio 即時合成，不需要音檔） -----
+// 每種武器由數層聲音疊成：槍口爆裂（crack，高頻瞬間）＋槍身（body，中頻）＋低頻悶響（thump）＋環境殘響（reverb 尾音），
+// 並依真實武器特性調整：手槍短促、步槍有超音速爆音與回音、機槍連發、霰彈槍低沉巨響＋拉槍栓、火箭筒噴射呼嘯、迫擊砲「咚」＋落下哨音。
 const SFX = (() => {
-  let ac = null, master = null, noiseBuf = null, muted = false;
+  let ac = null, master = null, dry = null, wet = null, conv = null, noiseBuf = null, muted = false;
   try { muted = localStorage.getItem('rc-mute') === '1'; } catch (e) {}
-  const VOL = 0.6;
+  const VOL = 0.75;
+  const rv = (x = 0.05) => x * (0.92 + Math.random() * 0.16);   // 每次發聲略有變化，連發才不會像錄音重播
+  // 建立音訊鏈：dry／wet（殘響）→ 總音量 → 壓縮器（防爆音、讓巨響更有厚度）→ 輸出
+  function setup(ctx) {
+    ac = ctx;
+    master = ctx.createGain(); master.gain.value = muted ? 0 : VOL;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -14; comp.knee.value = 12; comp.ratio.value = 5; comp.attack.value = 0.002; comp.release.value = 0.18;
+    master.connect(comp); comp.connect(ctx.destination);
+    dry = ctx.createGain(); dry.connect(master);
+    // 殘響：用指數衰減的噪音當脈衝響應（約 1.8 秒，高頻衰減較快，像戶外空曠處的回音）
+    const len = Math.floor(ctx.sampleRate * 1.8), ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = ir.getChannelData(c); let lp = 0;
+      for (let i = 0; i < len; i++) {
+        const k = i / len, a = (Math.random() * 2 - 1) * Math.pow(1 - k, 3.2);
+        lp += (a - lp) * (0.9 - 0.8 * k);   // 越到尾端越悶
+        d[i] = lp;
+      }
+    }
+    conv = ctx.createConvolver(); conv.buffer = ir;
+    wet = ctx.createGain(); wet.gain.value = 0.9; wet.connect(conv); conv.connect(master);
+    noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    const nd = noiseBuf.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  }
   function init() {   // 瀏覽器規定要在使用者操作後才能出聲
     if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
-    ac = new AC(); master = ac.createGain(); master.gain.value = muted ? 0 : VOL; master.connect(ac.destination);
-    noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
-    const d = noiseBuf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    if (AC) setup(new AC());
   }
-  // 振盪器：波形、起訖頻率、長度、音量、延遲
-  function tone(type, f0, f1, dur, vol, delay = 0) {
+  // 輸出到 dry，並以 send（0～1）分一部分到殘響
+  function route(node, send) {
+    node.connect(dry);
+    if (send > 0) { const g = ac.createGain(); g.gain.value = send; node.connect(g); g.connect(wet); }
+  }
+  // 振盪器：波形、起訖頻率、長度、音量、延遲；attack 為起音時間（秒）
+  function tone(type, f0, f1, dur, vol, delay = 0, send = 0, attack = 0.002, lp = 0) {
     const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
     o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
-    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    let n = o; o.connect(g);
+    if (lp) { const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lp; g.connect(f); n = f; } else n = g;
+    route(n, send); o.start(t); o.stop(t + dur + 0.03);
   }
-  // 濾波噪音：濾波起訖頻率、長度、音量、延遲
-  function noise(f0, f1, dur, vol, delay = 0, type = 'lowpass', q = 1) {
+  // 濾波噪音：濾波種類、起訖頻率、長度、音量、延遲、Q
+  function noise(type, f0, f1, dur, vol, delay = 0, q = 1, send = 0, attack = 0.001) {
     const t = ac.currentTime + delay, s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
     s.buffer = noiseBuf; f.type = type; f.Q.value = q;
     f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
-    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    s.connect(f); f.connect(g); g.connect(master); s.start(t, Math.random() * 0.4); s.stop(t + dur + 0.02);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); route(g, send); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.03);
   }
+  // 一發槍響：crack 槍口爆裂、body 槍身、thump 低頻悶響、tail 殘響尾音、snap 超音速爆音
+  function shot(o) {
+    const d = o.delay || 0, f = rv(0.06);
+    noise('highpass', 5000 * f, 2500, o.crackT || 0.03, o.crack, d, 0.7, o.send || 0.2);
+    noise('bandpass', o.bodyF * f, o.bodyF * 0.35, o.bodyT, o.body, d, 0.9, o.send || 0.2);
+    tone('sine', o.thumpF * f, o.thumpF * 0.4, o.thumpT, o.thump, d, o.send || 0.2, 0.002);
+    if (o.snap) noise('bandpass', 3200 * f, 1800, 0.05, o.snap, d, 3, 0.1);
+    if (o.tail) noise('lowpass', 1400, 120, o.tailT || 0.5, o.tail, d + 0.01, 0.7, 0.9);
+  }
+  // 金屬機械聲（槍栓、滑套、彈殼）
+  const metal = (delay, f = 2400, vol = 0.18) => { noise('bandpass', f * rv(0.1), f * 0.8, 0.018, vol, delay, 9, 0.05); tone('triangle', f * 0.5, f * 0.3, 0.03, vol * 0.4, delay, 0.05); };
+  const casing = delay => { for (let i = 0; i < 3; i++) tone('sine', 5200 * rv(0.25), 4300, 0.09, 0.025, delay + i * (0.04 + Math.random() * 0.05), 0.2); };
   const S = {
-    click:   () => tone('square', 1000, 700, 0.04, 0.08),
-    launch:  k => { noise(500, 3500, 0.35, 0.2 + 0.25 * k, 0, 'bandpass', 2); tone('sawtooth', 110, 140 + 320 * k, 0.4, 0.06); },
-    bump:    v => { const k = Math.min(1, v / 600); tone('sine', 190, 55, 0.16, 0.45 * k); noise(2200, 300, 0.08, 0.3 * k); },
-    pistol:  () => { noise(4000, 400, 0.12, 0.5); tone('square', 650, 120, 0.08, 0.14); },
-    mg:      () => { for (let i = 0; i < 4; i++) { noise(5000, 500, 0.07, 0.42, i * 0.07); tone('square', 520, 140, 0.05, 0.1, i * 0.07); } },
-    rifle:   () => { noise(6500, 300, 0.22, 0.6); tone('triangle', 950, 90, 0.16, 0.2); },
-    rocket:  () => { noise(700, 3200, 0.5, 0.35, 0, 'bandpass', 1.5); tone('sawtooth', 180, 620, 0.45, 0.05); },
-    mortar:  () => { tone('sine', 150, 40, 0.25, 0.7); noise(700, 100, 0.25, 0.4); tone('sine', 2300, 650, 0.65, 0.05, 0.15); },
-    hit:     () => { tone('square', 320, 80, 0.12, 0.22); noise(3000, 200, 0.15, 0.35); },
-    boom:    big => { noise(1800, 50, big ? 1.3 : 0.7, big ? 0.9 : 0.6); tone('sine', 110, 28, big ? 0.9 : 0.5, big ? 0.8 : 0.5); },
-    shotgun: () => { noise(3500, 150, 0.35, 0.85); tone('square', 220, 50, 0.14, 0.3);
-                     noise(2500, 1800, 0.05, 0.25, 0.32, 'bandpass', 3); noise(2000, 1500, 0.06, 0.25, 0.45, 'bandpass', 3); },  // 砰＋上膛
-    promote: () => [392, 523, 659].forEach((f, i) => tone('square', f, f, 0.12, 0.1, i * 0.08)),
-    plane:   () => { noise(300, 900, 0.9, 0.22, 0, 'bandpass', 3); tone('sawtooth', 90, 130, 0.9, 0.05); },   // 運輸機低空飛過
-    thud:    () => { tone('sine', 120, 40, 0.25, 0.6); noise(900, 120, 0.2, 0.3); [523, 659, 784, 1047].forEach((f, i) => tone('triangle', f, f, 0.18, 0.12, 0.12 + i * 0.07)); },   // 落地＋升官號角
-    aa:      () => { noise(1200, 6000, 0.3, 0.35, 0, 'bandpass', 2); tone('square', 700, 1900, 0.18, 0.06); },   // 攔截飛彈升空
-    win:     () => [523, 659, 784, 1047].forEach((f, i) => tone('triangle', f, f, i === 3 ? 0.7 : 0.3, 0.25, i * 0.14)),
+    click:   () => tone('square', 1500, 900, 0.025, 0.05),
+    // 車輛起步：低沉引擎轉速上升＋輪胎碾過地面
+    launch:  k => { tone('sawtooth', 62, 95 + 70 * k, 0.5, 0.07, 0, 0.1, 0.03, 500); noise('bandpass', 300, 1200 + 900 * k, 0.45, 0.1 + 0.1 * k, 0, 1.5, 0.05, 0.04); },
+    bump:    v => { const k = Math.min(1, v / 600); tone('sine', 190, 55, 0.16, 0.45 * k); noise('lowpass', 2200, 300, 0.08, 0.3 * k); },
+    // 手槍：清脆短促，滑套回彈的金屬聲
+    pistol:  () => { shot({ crack: 0.55, crackT: 0.025, bodyF: 1800, bodyT: 0.06, body: 0.3, thumpF: 220, thumpT: 0.06, thump: 0.28, tail: 0.1, tailT: 0.4, send: 0.2 }); metal(0.1, 3000, 0.12); },
+    // 步槍：較大的爆音、超音速「啪」聲、悠長的山谷回音
+    rifle:   () => { shot({ crack: 0.8, crackT: 0.04, bodyF: 1200, bodyT: 0.11, body: 0.5, thumpF: 150, thumpT: 0.13, thump: 0.5, snap: 0.35, tail: 0.22, tailT: 0.9, send: 0.4 }); metal(0.28, 2000, 0.1); },
+    // 機槍：快速連發（與畫面四連發同步，每 70 毫秒一發），每發略有差異，最後散落彈殼
+    mg:      () => { for (let i = 0; i < 4; i++) shot({ delay: i * 0.07, crack: rv(0.6) * (i === 0 ? 1.1 : 1), crackT: 0.03, bodyF: 1500, bodyT: 0.07, body: 0.38, thumpF: 170, thumpT: 0.07, thump: 0.36, tail: i === 3 ? 0.2 : 0.06, tailT: i === 3 ? 0.7 : 0.25, send: 0.3 }); casing(0.3); },
+    // 霰彈槍：寬頻巨響＋低沉震動，隨後「喀嚓、喀嚓」拉動泵動槍機
+    shotgun: () => { shot({ crack: 1.0, crackT: 0.05, bodyF: 1100, bodyT: 0.3, body: 0.8, thumpF: 95, thumpT: 0.24, thump: 0.85, tail: 0.3, tailT: 0.9, send: 0.5 }); metal(0.42, 1700, 0.22); metal(0.56, 2300, 0.24); casing(0.62); },
+    // 火箭筒：發射時「噗」的後噴氣流，接著火箭發動機持續噴射呼嘯
+    rocket:  () => { noise('lowpass', 900, 150, 0.14, 0.55, 0, 0.8, 0.3); tone('sine', 75, 38, 0.2, 0.55, 0, 0.3);
+                     noise('bandpass', 500, 3200, 0.6, 0.3, 0.03, 1.4, 0.35, 0.05); noise('highpass', 2500, 6000, 0.5, 0.1, 0.05, 0.7, 0.2, 0.05);
+                     tone('sawtooth', 52, 105, 0.6, 0.06, 0.03, 0.1, 0.05, 700); },
+    // 迫擊砲：砲彈入管發射的空洞「咚」聲，之後一道下墜的哨音
+    mortar:  () => { tone('sine', 135, 48, 0.32, 0.85, 0, 0.35, 0.003); noise('lowpass', 1100, 120, 0.22, 0.5, 0, 0.8, 0.3);
+                     tone('sine', 430, 380, 0.3, 0.06, 0.02, 0.5); noise('highpass', 1800, 900, 0.1, 0.25, 0, 1, 0.3);
+                     tone('sine', 3000, 700, 0.72, 0.07, 0.1, 0.2, 0.05); },
+    // 子彈命中：悶悶的撞擊＋金屬聲
+    hit:     () => { noise('bandpass', 1900, 600, 0.08, 0.4, 0, 1, 0.15); tone('sine', 150, 65, 0.15, 0.4, 0, 0.1); tone('sine', 1900, 1500, 0.16, 0.05, 0.01, 0.2); },
+    // 爆炸：低頻次聲波＋長尾噪音＋碎石飛散的劈啪聲＋大量殘響
+    boom:    big => { const T = big ? 1 : 0.55;
+                      tone('sine', 72, 24, 1.15 * T, 0.95, 0, 0.5, 0.004); tone('sine', 140, 45, 0.5 * T, 0.5, 0, 0.3);
+                      noise('lowpass', 2800, 70, 1.5 * T, 0.9, 0, 0.7, 0.6, 0.003);
+                      noise('bandpass', 1400, 400, 0.25 * T, 0.5, 0, 0.8, 0.3);
+                      for (let i = 0; i < (big ? 7 : 3); i++) noise('bandpass', (1500 + Math.random() * 4000), 1000, 0.05, 0.14 * Math.random() + 0.06, 0.1 + Math.random() * 0.6 * T, 2, 0.3); },
+    // 勝利：銅管號角（鋸齒波經低通濾波）
+    win:     () => [523, 659, 784, 1047].forEach((f, i) => { tone('sawtooth', f, f, i === 3 ? 0.9 : 0.32, 0.11, i * 0.15, 0.4, 0.02, 2200); tone('triangle', f / 2, f / 2, i === 3 ? 0.9 : 0.32, 0.12, i * 0.15, 0.2, 0.02); }),
+    promote: () => [392, 523, 659].forEach((f, i) => tone('sawtooth', f, f, 0.14, 0.08, i * 0.08, 0.2, 0.01, 2000)),
+    // 運輸機低空飛過：螺旋槳引擎的低頻嗡鳴（振幅快速起伏）＋都卜勒效應（逼近時音調高、遠離時降低）
+    plane:   () => { const t = ac.currentTime;
+                     for (const [f, v] of [[84, 0.07], [88, 0.06]]) {
+                       const o = ac.createOscillator(), g = ac.createGain(), lfo = ac.createOscillator(), lg = ac.createGain(), lp = ac.createBiquadFilter();
+                       o.type = 'sawtooth'; o.frequency.setValueAtTime(f * 1.12, t); o.frequency.exponentialRampToValueAtTime(f * 0.88, t + 1.7);
+                       lfo.frequency.value = 27; lg.gain.value = v * 0.5; lfo.connect(lg); lg.connect(g.gain);
+                       g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(v, t + 0.5); g.gain.setValueAtTime(v, t + 0.8); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+                       lp.type = 'lowpass'; lp.frequency.value = 900; o.connect(lp); lp.connect(g); route(g, 0.15); o.start(t); o.stop(t + 1.85); lfo.start(t); lfo.stop(t + 1.85);
+                     }
+                     noise('bandpass', 350, 280, 1.6, 0.08, 0, 2, 0.1, 0.4); },
+    // 補給箱落地：沉重撞擊＋塵土，接著銅管號角
+    thud:    () => { tone('sine', 105, 36, 0.28, 0.7, 0, 0.3); noise('lowpass', 900, 120, 0.22, 0.35, 0, 0.8, 0.3); metal(0.04, 900, 0.14);
+                     [392, 523, 659, 784].forEach((f, i) => tone('sawtooth', f, f, 0.2, 0.09, 0.16 + i * 0.08, 0.35, 0.01, 1900)); },
+    // 防空飛彈升空：高亢的固態火箭噴氣聲，快速爬升
+    aa:      () => { noise('lowpass', 1600, 300, 0.1, 0.35, 0, 0.8, 0.2); noise('highpass', 1500, 6500, 0.45, 0.28, 0.02, 0.8, 0.3, 0.02);
+                     noise('bandpass', 900, 4200, 0.4, 0.2, 0.02, 2, 0.3, 0.03); tone('sawtooth', 160, 700, 0.4, 0.05, 0.02, 0.1, 0.03, 1500); },
   };
+  // 各音效的音量修正（實測各音效最大振幅後調成大致平衡：槍聲 < 爆炸，撞擊／點擊聲較小）
+  const TRIM = { click: 9, launch: 4.5, pistol: 3.2, rifle: 2.4, mg: 0.65, shotgun: 2.7, rocket: 2, mortar: 2, hit: 2.7, boom: 1.1, aa: 1.3, plane: 1.3, thud: 2.2, win: 1.3, promote: 2, bump: 1 };
+  // 以獨立的音量匯流排播放，使每個音效套用自己的修正值
+  function run(n, a) {
+    const g = TRIM[n] || 1, d0 = dry, w0 = wet;
+    dry = ac.createGain(); dry.gain.value = g; dry.connect(master);
+    wet = ac.createGain(); wet.gain.value = 0.9 * g; wet.connect(conv);
+    try { S[n](...a); } finally { dry = d0; wet = w0; }
+  }
   return {
     init,
-    play(n, ...a) { if (ac && !muted) S[n](...a); },
+    play(n, ...a) { if (ac && !muted) run(n, a); },
     toggle() {
       muted = !muted;
       try { localStorage.setItem('rc-mute', muted ? '1' : '0'); } catch (e) {}
@@ -190,6 +271,11 @@ const SFX = (() => {
       return muted;
     },
     get muted() { return muted; },
+    // 測試用：離線渲染某個音效，回傳取樣資料（不輸出聲音）
+    async _render(name, args = [], secs = 3) {
+      const keep = [ac, master, dry, wet, conv, noiseBuf], off = new OfflineAudioContext(2, 44100 * secs, 44100);
+      setup(off); try { run(name, args); const buf = await off.startRendering(); return buf; } finally { [ac, master, dry, wet, conv, noiseBuf] = keep; }
+    },
   };
 })();
 
@@ -550,7 +636,7 @@ function intercept(a, b, aim, f) {
   const e = interceptorFor(1 - a.s, aim.x, aim.y);   // 以原本瞄準的目標判定範圍（士衝出來擋時仍算帥的位置）
   if (!e) return f;
   const [ix, iy] = projPos({ ...f, t: f.T * (1 - STOP_AT) }), flight = f.T * STOP_AT;
-  e.cd = e.T.reload;
+  e.cd = e.T.reload; e.lock = { t: 0.9, a: Math.atan2(iy - e.y, ix - e.x) };   // 雷達鎖定目標
   fx.push({ k: 'rocket', x1: e.x, y1: e.y, x2: ix, y2: iy, dir: Math.atan2(iy - e.y, ix - e.x), side: e.s,
             t: flight * 0.7, T: flight * 0.7, delay: flight * 0.3, start: () => { SFX.play('aa'); muzzle(e.x, e.y, Math.atan2(iy - e.y, ix - e.x), false); } });
   f.stopAt = STOP_AT;
@@ -623,6 +709,7 @@ function update(dt) {
   }
   for (const p of pieces) {
     p.flash = Math.max(0, p.flash - dt); p.recoil = Math.max(0, p.recoil - dt * 6);
+    if (p.lock) { p.lock.t -= dt; if (p.lock.t <= 0) p.lock = null; }
     if (p.dash) {   // 士衝出去（0.1 秒）→ 擋下後退回（0.3 秒）
       const d = p.dash;
       d.k = d.back ? Math.max(0, d.k - dt / 0.3) : Math.min(1, d.k + dt / 0.1);
@@ -854,9 +941,45 @@ function drawPiece(p) {
   }
   ctx.restore();
 }
-function aaRing(x, y, r, ready = true) {
-  circle(x, y, r); ctx.fillStyle = ready ? '#2f6fb518' : '#55555510'; ctx.fill();
-  ctx.strokeStyle = ready ? '#2f6fb5aa' : '#7778'; ctx.lineWidth = 2; ctx.setLineDash([3, 5]); ctx.stroke(); ctx.setLineDash([]);
+// 老式雷達掃描：同心圓距離環、十字方位線、外圈刻度、順時針旋轉的掃描線與逐漸消退的綠色餘暉，
+// 掃過範圍內的敵人時留下光點；冷卻中變灰、轉得很慢；攔截時掃描線轉成紅色鎖定目標。
+function radar(x, y, r, owner, strong = true) {
+  const now = performance.now() / 1000, ready = !owner.cd, lock = owner.lock && owner.lock.t > 0 ? owner.lock : null;
+  const A = strong ? 1 : 0.55, ph = pieces.indexOf(owner) * 1.3;
+  const ang = lock ? lock.a : ready ? now * 1.7 + ph : now * 0.3 + ph;
+  const col = lock ? '255,90,70' : ready ? '70,230,130' : '150,160,160';
+  const rgba = a => `rgba(${col},${a * A})`;
+  ctx.save();
+  circle(x, y, r); ctx.fillStyle = rgba(0.07); ctx.fill();                       // 螢幕底色
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 3; i++) { circle(x, y, r * i / 3); ctx.strokeStyle = rgba(i === 3 ? 0.75 : 0.28); ctx.lineWidth = i === 3 ? 2 : 1; ctx.stroke(); }
+  ctx.strokeStyle = rgba(0.25); ctx.lineWidth = 1;                              // 十字方位線
+  line(x - r, y, x + r, y); line(x, y - r, x, y + r);
+  ctx.strokeStyle = rgba(0.6); ctx.lineWidth = 1.5;                             // 外圈刻度（每 15°，每 45° 較長）
+  for (let i = 0; i < 24; i++) { const a = i * Math.PI / 12, l = i % 3 === 0 ? 7 : 3.5; line(x + Math.cos(a) * r, y + Math.sin(a) * r, x + Math.cos(a) * (r - l), y + Math.sin(a) * (r - l)); }
+  if (ready || lock) {                                                          // 掃描餘暉：越遠離掃描線越淡
+    const N = 30, step = 0.05;
+    for (let i = 0; i < N; i++) {
+      const a1 = ang - i * step, a0 = a1 - step - 0.004, k = 1 - i / N;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r, a0, a1); ctx.closePath();
+      ctx.fillStyle = rgba(0.4 * k * k); ctx.fill();
+    }
+  } else { ctx.setLineDash([2, 6]); }                                           // 冷卻中：只剩一條暗淡的慢速掃描線
+  ctx.strokeStyle = rgba(ready || lock ? 0.95 : 0.4); ctx.lineWidth = lock ? 3 : 2;
+  line(x, y, x + Math.cos(ang) * r, y + Math.sin(ang) * r); ctx.setLineDash([]);
+  if (ready && !lock) {                                                         // 範圍內的敵人：被掃描線掃過時亮起光點，之後漸暗
+    for (const q of alive()) {
+      if (q.s === owner.s) continue;
+      const dx = q.x - x, dy = q.y - y;
+      if (Math.hypot(dx, dy) > r + 1) continue;
+      const d = (((ang - Math.atan2(dy, dx)) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI), br = Math.max(0, 1 - d / 3.2);
+      if (br <= 0.02) continue;
+      circle(q.x, q.y, 3 + 5 * br); ctx.fillStyle = rgba(0.9 * br); ctx.fill();
+      circle(q.x, q.y, 6 + 14 * (1 - br)); ctx.strokeStyle = rgba(0.6 * br); ctx.lineWidth = 1.5; ctx.stroke();
+    }
+  }
+  if (lock) { circle(x + Math.cos(ang) * r * 0.9, y + Math.sin(ang) * r * 0.9, 6 + Math.sin(now * 25) * 2); ctx.strokeStyle = rgba(1); ctx.lineWidth = 2; ctx.stroke(); }
+  ctx.restore();
 }
 function rangeRing(p, x, y) {
   p = { ...p, T: weaponOf(p) };   // 冷卻中顯示步槍射程
@@ -869,7 +992,7 @@ function rangeRing(p, x, y) {
     ctx.setLineDash([]);
     return;
   }
-  if (p.T.aa) { aaRing(x, y, p.T.aa, !p.cd); circle(x, y, p.T.range); ctx.strokeStyle = '#c0392b88'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]); return; }
+  if (p.T.aa) { radar(x, y, p.T.aa, p, true); circle(x, y, p.T.range); ctx.strokeStyle = '#c0392b88'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]); return; }
   circle(x, y, p.T.range); ctx.fillStyle = '#c0392b14'; ctx.fill();
   ctx.strokeStyle = '#c0392b88'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke();
   if (p.T.min) { circle(x, y, p.T.min); ctx.strokeStyle = '#5558'; ctx.stroke(); }
@@ -1003,9 +1126,7 @@ function draw() {
   // 交叉點標記（可停的定點）與相的防空範圍（冷卻中變灰）
   ctx.fillStyle = '#6b442355';
   for (let c = 0; c <= 8; c++) for (let r = 0; r <= 9; r++) { circle(gx(c), gy(r), 2.5); ctx.fill(); }
-  for (const h of alive()) if (h.T.aa && !(sel && sel.p === h)) {
-    circle(h.x, h.y, h.T.aa); ctx.strokeStyle = h.cd ? '#7775' : '#2f6fb570'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 5]); ctx.stroke(); ctx.setLineDash([]);
-  }
+  for (const h of alive()) if (h.T.aa && !(sel && sel.p === h)) radar(h.x, h.y, h.T.aa, h, false);
   if (state === 'aim') for (const p of alive()) if (p.s === turn) {
     circle(p.x, p.y, R + 5); ctx.strokeStyle = turn ? '#0005' : '#c0392b66'; ctx.lineWidth = 3; ctx.stroke();
   }
@@ -1211,7 +1332,7 @@ function aiTick() {
 
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.13';
+const VERSION = '2026-10-18.14';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
