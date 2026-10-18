@@ -92,9 +92,9 @@ const gx = c => M + c * C, gy = r => M + r * C;
 const SIDE = [{ name: '紅方', col: '#c0392b' }, { name: '黑方', col: '#1d1d1d' }];
 const TYPES = {
   K: { n: ['帥', '將'], hp: 3, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 3,   w: '手槍',   snd: 'pistol', proj: 'bullet', palace: true },
-  R: { n: ['俥', '車'], hp: 4, dist: 7 * C,   range: 5 * C,   min: 0,     dmg: 2, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst', line: true, diagRange: 3 * C },   // 只能沿橫線／直線移動；橫線、直線射程 5 格，斜對角只有 3 格
-  N: { n: ['傌', '馬'], hp: 3, dist: 4.5 * C, range: 3.4 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket', reload: 2, backup: true },   // 射後需裝填 2 回合（期間改用步槍）
-  C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', indirect: true, reload: 2, backup: true, moveLine: true, splash: 1.5 * C },   // 只能沿橫線／直線移動；射後需裝填 2 回合（期間改用步槍）；上下左右相鄰受 1/2 傷害、斜角受 1/4（無條件捨去到 ¼ 心）
+  R: { n: ['俥', '車'], hp: 4, dist: 10 * C,   range: 5 * C,   min: 0,     dmg: 2, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst', line: true, diagRange: 3 * C },   // 只能沿橫線／直線移動；橫線、直線射程 5 格，斜對角只有 3 格
+  N: { n: ['傌', '馬'], hp: 3, dist: 0, knight: true, range: 3 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket', reload: 2, backup: true },   // 射後需裝填 2 回合（期間改用步槍）
+  C: { n: ['炮', '砲'], hp: 3, dist: 10 * C, range: 5.2 * C, min: 2 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', indirect: true, reload: 2, backup: true, moveLine: true, splash: 1.5 * C },   // 只能沿橫線／直線移動；射後需裝填 2 回合（期間改用步槍）；上下左右相鄰受 1/2 傷害、斜角受 1/4（無條件捨去到 ¼ 心）
   // 相／象：防空＋近戰；自動攔截落點在 2.5 格內的火箭／砲彈（冷卻 2 回合，不影響近戰）；近戰 1 心、射程 1.5 格；只能走田字（象眼被塞就過不去）
   // 仕／士：護衛，不能攻擊；限九宮斜走一格；帥被直接攻擊時，相鄰的士衝出來替帥擋下
   G: { n: ['仕', '士'], hp: 3, dist: 1.5 * C, range: 0,       min: 0,     dmg: 0, mass: 1.5, w: '無（護衛）', palace: true, guard: true },
@@ -407,6 +407,12 @@ function movesFor(p) {
   let cand;
   if (p.T.guard) cand = [[1, 1], [1, -1], [-1, 1], [-1, -1]]   // 士：九宮內斜走一格
                          .map(([sx, sy]) => [p.x + sx * C, p.y + sy * C]).filter(([x, y]) => pts.some(at(x, y)));
+  else if (p.T.knight) {   // 傌：走「日」字，蹩馬腳（長邊方向緊鄰的那一格有棋子）就走不了；可跳過其他棋子
+    const occ = (x, y) => alive().some(q => q !== p && at(x, y)([q.x, q.y]));
+    return [[1, 2], [1, -2], [-1, 2], [-1, -2], [2, 1], [2, -1], [-2, 1], [-2, -1]]
+      .filter(([sx, sy]) => !occ(p.x + (Math.abs(sx) === 2 ? Math.sign(sx) : 0) * C, p.y + (Math.abs(sy) === 2 ? Math.sign(sy) : 0) * C))
+      .map(([sx, sy]) => [p.x + sx * C, p.y + sy * C]).filter(([x, y]) => pts.some(at(x, y)) && !occ(x, y));
+  }
   else if (p.T.aa) cand = [[2, 2], [2, -2], [-2, 2], [-2, -2]]   // 相／象：走「田」字（斜走兩格），象眼（中間格）有棋子就被塞住
                          .map(([sx, sy]) => [p.x + sx * C, p.y + sy * C]).filter(([x, y]) => pts.some(at(x, y)));
   else if (oneStep(p)) cand = (p.T.locked ? [[0, fwd(p)]] : [[1, 0], [-1, 0], [0, 1], [0, -1]])
@@ -1197,7 +1203,7 @@ function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; dr
 $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動(格)</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
   Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${(T.dist / C).toFixed(1)}</td>` +
     `<td>${T.guard ? '護衛' : T.aa ? '近戰 ' + (T.range / C).toFixed(1) + '／攔截 ' + (T.aa / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${T.guard ? '-' : hearts(T.dmg)}</td>` +
-    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；只能沿橫線／直線移動；射後裝填 ${T.reload} 回合（期間改用步槍）` : T.guard ? '限九宮斜走一格；帥被攻擊時衝出來替帥擋下（炮的波及擋不住）' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（冷卻 ${T.reload} 回合）；另有近戰攻擊；只能走田字（象眼被塞就過不去）` : T.line ? '只能沿橫線／直線移動；橫線、直線射程 5 格，斜對角線只有 3 格；機槍直射會被擋' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛；可前進或橫移，不能往後退' : '直射，會被擋'}${T.alt && !T.indirect ? `；射後裝填 ${T.reload} 回合（期間改用步槍）` : ''}</td></tr>`).join('');
+    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；走法同車（橫線／直線不限距離，不能穿過棋子）；射後裝填 ${T.reload} 回合（期間改用步槍）` : T.guard ? '限九宮斜走一格；帥被攻擊時衝出來替帥擋下（炮的波及擋不住）' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（冷卻 ${T.reload} 回合）；另有近戰攻擊；只能走田字（象眼被塞就過不去）` : T.line ? '走法如傳統象棋的車：橫線／直線不限距離（不能穿過棋子）；橫線、直線射程 5 格，斜對角線只有 3 格；機槍直射會被擋' : T.knight ? '走日字（可跳過棋子），蹩馬腳（長邊緊鄰格有棋子）不能走；火箭直射會被擋，可被相攔截' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛；可前進或橫移，不能往後退' : '直射，會被擋'}${T.alt && !T.indirect ? `；射後裝填 ${T.reload} 回合（期間改用步槍）` : ''}</td></tr>`).join('');
 // ===== 電腦對戰（AI） =====
 // 列舉電腦每顆棋子「原地或移到某個可走的點，再攻擊某個目標（或不攻擊）」的所有行動，
 // 用與實際規則相同的函式（scan、shotgunSim、guardFor、interceptorFor）估算傷害來打分。
@@ -1335,7 +1341,7 @@ function aiTick() {
 
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.18';
+const VERSION = '2026-10-18.19';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
