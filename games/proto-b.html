@@ -136,7 +136,7 @@ const TYPES = {
   K: { n: ['帥', '將'], hp: 3, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 3,   w: '手槍',   snd: 'pistol', proj: 'bullet', palace: true },
   R: { n: ['俥', '車'], hp: 4, dist: 10 * C,   range: 4.2 * C, min: 0,     dmg: 2, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst', reload: 1, backup: true, line: true, ortho: true },   // 只能沿橫線／直線移動；橫線、直線射程 5 格，斜對角只有 3 格
   N: { n: ['傌', '馬'], hp: 3, dist: 0, knight: true, range: 3 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket', reload: 1, backup: true, knightOnly: true },   // 火箭只能打「日」字位置；近戰（任何時候）用 1 心步槍   // 射後需裝填 2 回合（期間改用步槍）
-  C: { n: ['炮', '砲'], hp: 3, dist: 10 * C, range: 5.2 * C, min: 4 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', reload: 1, backup: true, indirect: true, moveLine: true, ortho: true, splash: 1.5 * C },   // 只能打同一橫線／直線上的目標；   // 只能沿橫線／直線移動；射後需裝填 1 回合（期間改用步槍）；上下左右相鄰受 1/2 傷害、斜角受 1/4（無條件捨去到 ¼ 心）
+  C: { n: ['炮', '砲'], hp: 3, dist: 10 * C, range: 5.2 * C, min: 4 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', reload: 1, indirect: true, moveLine: true, ortho: true, splash: 1.5 * C },   // 只能打同一橫線／直線上的目標；   // 只能沿橫線／直線移動；射後需裝填 1 回合（期間完全不能攻擊，包括近戰）；上下左右相鄰受 1/2 傷害、斜角受 1/4（無條件捨去到 ¼ 心）
   // 相／象：防空＋近戰；自動攔截落點在 2.5 格內的火箭／砲彈（冷卻 2 回合，不影響近戰）；近戰 1 心、射程 1.5 格；只能走田字（象眼被塞就過不去）
   // 仕／士：護衛，近距離手槍；限九宮斜走一格；帥被直接攻擊時，相鄰的士衝出來替帥擋下
   G: { n: ['仕', '士'], hp: 3, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 1.5, w: '手槍', snd: 'pistol', proj: 'bullet', palace: true, guard: true },   // 近距離（相鄰與斜角）手槍 1 心
@@ -146,7 +146,7 @@ const TYPES = {
   P2: { n: ['士官長', '士官長'], face: ['兵', '卒'], hp: 3, dist: 3.5 * C, range: 3 * C, min: 0,    dmg: 2.5, mass: 1,   w: '強化霰彈槍', snd: 'shotgun', proj: 'pellets', tag: '（過河升官）',
         pellets: 9, cone: 30 * Math.PI / 180 },
 };
-// 炮、傌的主武器冷卻時，改用步槍（1 心、射程 1.8 格、直射）
+// 傌、俥的主武器冷卻時，改用步槍（炮冷卻時完全不能攻擊）（1 心、射程 1.8 格、直射）
 const RIFLE = { w: '步槍', snd: 'rifle', proj: 'bullet', dmg: 1, range: 1.8 * C, min: 0, indirect: false, splash: 0, reload: 0, backup: false, ortho: false, knightOnly: false, isAlt: true };
 for (const T of Object.values(TYPES)) if (T.backup) T.alt = { ...T, ...RIFLE };
 // 每方各有一份兵種數值表 TT[side][key]（含強化卡的加成）；棋子的 p.T 指向自己那方的表
@@ -173,7 +173,7 @@ function knightOffset(x, y, b) {
   const dx = Math.abs(b.x - x) / C, dy = Math.abs(b.y - y) / C, rx = Math.round(dx), ry = Math.round(dy);
   return Math.abs(dx - rx) < 0.05 && Math.abs(dy - ry) < 0.05 && ((rx === 1 && ry === 2) || (rx === 2 && ry === 1));
 }
-// 打目標 b 時實際使用的武器：傌——日字位置且火箭已裝填完用火箭，其餘用步槍；炮／其他——冷卻中改用步槍
+// 打目標 b 時實際使用的武器：傌——日字位置且火箭已裝填完用火箭，其餘用步槍；炮——冷卻中不能攻擊；俥——冷卻中改用步槍
 function weaponFor(a, b, x = a.x, y = a.y) {
   const T = a.T;
   if (!T.alt) return T;
@@ -1350,7 +1350,7 @@ function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; dr
 $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動(格)</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
   Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${T.knight ? '日字' : T.aa ? '田字' : T.guard ? '斜 1' : T.dist >= 9 * C ? '不限' : (T.dist / C).toFixed(1)}</td>` +
     `<td>${T.guard ? '手槍 ' + (T.range / C).toFixed(1) : T.aa ? '手槍 ' + (T.melee / C).toFixed(1) + '／田字／攔截 ' + (T.aa / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${hearts(T.dmg)}</td>` +
-    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；走法同車；只能打同一橫線／直線上、距離 4～5.2 格的目標；射後裝填 ${T.reload} 回合（期間改用步槍），近距離毫無辦法` : T.guard ? '限九宮斜走一格；手槍可打相鄰與斜角的敵人；帥被直射（非炮、非火箭）時，若仕的某個落點剛好在射線上，會自動走過去擋下並換位' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（攔截後冷卻：對方接下來 ${T.reload} 次攻擊攔截不了）；手槍可打相鄰與田字對角點的敵人；走田字（象眼被塞就過不去；田字走不了時改走一步）` : T.line ? '走法如傳統象棋的車：橫線／直線不限距離（不能穿過棋子）；機槍只能打同一橫線／直線上的目標（比炮短 1 格），直射會被擋' : T.knight ? '走日字（可跳過棋子），蹩馬腳不能走；日字都走不了時改走一步；火箭只能打日字位置、可被相攔截；近戰隨時可用步槍（1 心）' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛；可前進或橫移，不能往後退' : '直射，會被擋'}${T.alt && !T.indirect ? `；射後裝填 ${T.reload} 回合（期間改用步槍）` : ''}</td></tr>`).join('');
+    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；走法同車；只能打同一橫線／直線上、距離 4～5.2 格的目標；射後裝填 ${T.reload} 回合，冷卻期間完全無法攻擊（包括近戰），近距離毫無辦法` : T.guard ? '限九宮斜走一格；手槍可打相鄰與斜角的敵人；帥被直射（非炮、非火箭）時，若仕的某個落點剛好在射線上，會自動走過去擋下並換位' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（攔截後冷卻：對方接下來 ${T.reload} 次攻擊攔截不了）；手槍可打相鄰與田字對角點的敵人；走田字（象眼被塞就過不去；田字走不了時改走一步）` : T.line ? '走法如傳統象棋的車：橫線／直線不限距離（不能穿過棋子）；機槍只能打同一橫線／直線上的目標（比炮短 1 格），直射會被擋' : T.knight ? '走日字（可跳過棋子），蹩馬腳不能走；日字都走不了時改走一步；火箭只能打日字位置、可被相攔截；近戰隨時可用步槍（1 心）' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛；可前進或橫移，不能往後退' : '直射，會被擋'}${T.alt && !T.indirect ? `；射後裝填 ${T.reload} 回合（期間改用步槍）` : ''}</td></tr>`).join('');
 // ===== 電腦對戰（AI） =====
 // 列舉電腦每顆棋子「原地或移到某個可走的點，再攻擊某個目標（或不攻擊）」的所有行動，
 // 用與實際規則相同的函式（scan、shotgunSim、guardBlock、interceptorFor）估算傷害來打分。
@@ -1549,7 +1549,7 @@ const CARDS = validateCards([
   { id: 'n_rel', ic: '⚙️', name: '傌・自動裝填', desc: '傌的火箭冷卻 −1 回合（可降到無冷卻）', need: 'N', max: 1, fx: { N: { reload: -1 } }, cond: s => TT[s].N.reload > 0 },
   { id: 'n_spl', ic: '🎆', name: '傌・破片彈頭', desc: '傌的火箭也有範圍傷害（相鄰 1/2、斜角 1/4）', need: 'N', max: 1, fx: { N: { splash: 1.5 * C } } },
   { id: 'e_aa',  ic: '📶', name: '象・擴大雷達', desc: '象的防空範圍 +1 格', need: 'E', max: 3, fx: { E: { aa: C } } },
-  { id: 'e_heal', ic: '💚', name: '象・戰地醫療', desc: '象每回合開始替 2.5 格內友軍回復 ½ 心（可疊加）', need: 'E', max: 3, fx: { E: { healAmt: 0.5 } } },
+  { id: 'e_heal', ic: '💚', name: '象・戰地醫療', desc: '象每回合開始替 2.5 格內血量最少的一位友軍回復 ½ 心', need: 'E', max: 3, fx: { E: { healAmt: 0.5 } } },
   { id: 'e_rel', ic: '⚡', name: '象・快速冷卻', desc: '象攔截後不再冷卻', need: 'E', max: 1, fx: { E: { reload: -1 } }, cond: s => TT[s].E.reload > 0 },
   { id: 'e_dmg', ic: '🔫', name: '象・加強手槍', desc: '象的手槍威力 +1 心', need: 'E', max: 2, fx: { E: { dmg: 1 } } },
   { id: 'g_hp',  ic: '⛑️', name: '仕・防彈鋼盔', desc: '仕的血量上限 +1 心，並回復 1 心', need: 'G', max: 2, fx: { G: { hp: 1 } } },
@@ -1563,8 +1563,9 @@ const CARDS = validateCards([
 ]);
 const cardOf = id => CARDS.find(c => c.id === id);
 let pickQ = [], pickSide = null, waitingFor = null, incoming = [];
+const CARD_STACK = false;   // 是否允許同一張卡重複拿來疊加（false＝每張卡只能拿一次；max 仍保留，改成 true 即恢復疊加）
 function cardOk(c, side) {
-  if ((cardCount[side][c.id] || 0) >= c.max) return false;
+  if ((cardCount[side][c.id] || 0) >= (CARD_STACK ? c.max : 1)) return false;
   if (c.need && !pieces.some(p => p.s === side && p.hp > 0 && p.t === c.need)) return false;
   return !c.cond || c.cond(side);
 }
@@ -1589,16 +1590,18 @@ function applyCard(side, id) {
   if (c.instant) c.instant(side);
   SFX.play('card'); toast(`${SIDE[side].name}獲得強化：${c.ic} ${c.name}`); renderPerks();
 }
-// 戰地醫療：side 方回合開始時，象為 2.5 格內友軍回復血量（多隻象不疊加，取最大）
+// 戰地醫療：side 方回合開始時，只替「象 2.5 格內、血量最少」的一位友軍回復（多隻象取最大回復量）
 function healPhase(side) {
   const hs = alive().filter(p => p.s === side && p.T.healAmt > 0);
   if (!hs.length) return;
-  let any = false;
+  let best = null, amt = 0;
   for (const q of alive()) if (q.s === side && q.hp < q.T.hp) {
-    const amt = Math.max(0, ...hs.filter(h => Math.hypot(h.x - q.x, h.y - q.y) <= 2.5 * C + 1).map(h => h.T.healAmt));
-    if (amt > 0) { const h = Math.min(amt, q.T.hp - q.hp); q.hp += h; healFX(q, h); any = true; }
+    const a = Math.max(0, ...hs.filter(h => Math.hypot(h.x - q.x, h.y - q.y) <= 2.5 * C + 1).map(h => h.T.healAmt));
+    if (a > 0 && (!best || q.hp < best.hp)) { best = q; amt = a; }
   }
-  if (any) SFX.play('heal');
+  if (!best) return;
+  const h = Math.min(amt, best.T.hp - best.hp); best.hp += h; healFX(best, h);
+  SFX.play('heal');
 }
 function healFX(q, amt) {
   fx.push({ k: 'txt', x: q.x, y: q.y - R, txt: '+' + hearts(amt), t: 1.3, T: 1.3, col: '#159447', side: q.s });
@@ -1699,6 +1702,7 @@ showCardsBtn();
 // ===== 更新內容 =====
 // 每次改版在最上面加一筆；版本更新後第一次開啟會自動彈出新內容，☰ 選單也可隨時查看
 const CHANGELOG = [
+  { v: '2026-10-18.33', t: ['炮冷卻期間完全無法攻擊（不再能用步槍近戰）', '戰地醫療每回合只治療象範圍內「血量最少」的一位友軍', '強化卡牌不能疊加：每張卡每方只能拿一次'] },
   { v: '2026-10-18.32', t: ['俥的機槍威力改回 2 心，但射擊後要冷卻 1 回合（期間改用 1 心步槍）', '各棋攻擊時，有方向性的武器（機槍、火箭筒、火炮、步槍、霰彈槍、防空砲）會轉向攻擊方向'] },
   { v: '2026-10-18.31', t: ['相的防空改成防空砲樣式：一串橘黃曳光彈射向來襲的火箭／砲彈，在空中炸成黑色高射砲煙團與破片（不再是一發飛彈）'] },
   { v: '2026-10-18.30', t: ['冷卻顯示更清楚：冷卻中的棋子整顆變暗，右上角出現橘色倒數徽章（數字＝還要幾回合／幾次，黃色外圈＝進度）；冷卻完畢的炮、傌、象右上角亮綠燈表示可用'] },
@@ -1727,7 +1731,7 @@ $('mLog').onclick = () => showLog(true);
 
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.32';
+const VERSION = '2026-10-18.33';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
