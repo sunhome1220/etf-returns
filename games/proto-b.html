@@ -16,6 +16,7 @@
   canvas { width:min(96vw, 560px, calc((100vh - 140px) * 520 / 576)); display:block; touch-action:none; border-radius:6px; box-shadow:0 4px 18px #0008; }
   button { background:#e8c88a; color:#2b2118; border:0; border-radius:4px; padding:6px 12px; font:inherit; cursor:pointer; }
   button:disabled { opacity:.35; cursor:default; }
+  #fire { background:#e74c3c; color:#fff; font-weight:700; }
   table { margin:10px 0 20px; border-collapse:collapse; font-size:13px; }
   td, th { padding:3px 8px; border-bottom:1px solid #3d4f44; text-align:center; }
 </style>
@@ -26,7 +27,7 @@
   <span id="turn"></span>
   <span><button id="mute" title="音效開關">🔊</button> <button id="restart">重新開始</button></span>
 </header>
-<div id="bar"><div id="info"></div><button id="skip" disabled>不射擊</button></div>
+<div id="bar"><div id="info"></div><button id="fire" hidden>發射</button><button id="skip" disabled>不射擊</button></div>
 <canvas id="cv"></canvas>
 <table id="legend"></table>
 <script>
@@ -55,7 +56,7 @@ const LAYOUT = [['K',4,9],['R',0,9],['R',8,9],['N',1,9],['N',7,9],['C',1,7],['C'
                 ['P',0,6],['P',2,6],['P',4,6],['P',6,6],['P',8,6]];
 
 let pieces, turn, state, drag, mover, timer, fx, winner, targets;
-let moved = false, firedPiece = null;   // moved：本回合是否已移動（未移動才能取消）
+let moved = false, firedPiece = null, dragging = false;   // dragging：手指正按著拉   // moved：本回合是否已移動（未移動才能取消）
 const $ = id => document.getElementById(id);
 const alive = () => pieces.filter(p => p.hp > 0);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -172,7 +173,7 @@ function reset() {
       const T = TYPES[t];
       pieces.push({ s, t, T, x: gx(c), y: gy(s ? 9 - r : r), vx: 0, vy: 0, hp: T.hp, hd: s ? Math.PI / 2 : -Math.PI / 2, flash: 0, recoil: 0, cd: 0 });
     }
-  turn = 0; state = 'aim'; drag = null; fx = []; moved = false; firedPiece = null; winner = null; targets = []; parts = []; decals = []; shake = 0;
+  turn = 0; state = 'aim'; drag = null; dragging = false; fx = []; moved = false; firedPiece = null; winner = null; targets = []; parts = []; decals = []; shake = 0;
   updateHeader(); $('skip').disabled = true;
   setMsg('拉動己方棋子移動（輕點＝原地不動），停下後點選要攻擊的敵人。');
 }
@@ -245,12 +246,14 @@ function speedForOneStep(p) {
   }
   return lo;
 }
+// 拉動向量 = 按下點 − 目前手指位置（從棋子哪裡按下都一樣，輕碰不會變成拉動）
+const TAP = 16;   // 小於這個距離都算「輕點」
 function pullInfo() {
-  const p = drag.p, dx = p.x - drag.x, dy = p.y - drag.y, len = Math.hypot(dx, dy);
-  if (p.T.locked) return { len, pw: 1, vx: 0, vy: drag.v1 * fwd(p) };
+  const p = drag.p, dx = drag.sx - drag.x, dy = drag.sy - drag.y, len = Math.hypot(dx, dy);
+  if (p.T.locked) return { len, dx, dy, pw: 1, vx: 0, vy: drag.v1 * fwd(p) };
   const pw = Math.min(len, MAXPULL) / MAXPULL;
   const v = Math.sqrt(2 * FR * pw * p.T.dist);
-  return { len, pw, vx: len ? dx / len * v : 0, vy: len ? dy / len * v : 0 };
+  return { len, dx, dy, pw, vx: len ? dx / len * v : 0, vy: len ? dy / len * v : 0 };
 }
 
 // ----- 射擊判定 -----
@@ -310,6 +313,7 @@ const reloadMsg = p => `${p.T.n[p.s]}裝填中，還要 ${p.cd} 回合才能再�
 function setSkip(on) {
   $('skip').disabled = !on;
   $('skip').textContent = moved ? '不射擊' : '取消';
+  $('fire').hidden = state !== 'armed';
 }
 function onStop() {
   promoteCrossed();
@@ -436,42 +440,73 @@ cv.addEventListener('pointerdown', e => {
     if (moved) return;
     cancelSelect();          // 還沒移動：點別處＝取消；點己方棋子＝直接改操作它
   }
-  if (state !== 'aim') return;
   const p = alive().find(p => p.s === turn && Math.hypot(p.x - m.x, p.y - m.y) < R + 6);
-  if (p) {
-    drag = { p, x: m.x, y: m.y, notch: 0, v1: p.T.locked ? speedForOneStep(p) : 0 };
-    cv.setPointerCapture(e.pointerId); SFX.play('click');
+  if (state === 'armed') {
+    if (p === drag.p) {      // 再按同一顆：輕點＝發射，拖曳＝重新調整
+      drag.prev = { sx: drag.sx, sy: drag.sy, x: drag.x, y: drag.y };
+      Object.assign(drag, { sx: m.x, sy: m.y, x: m.x, y: m.y, notch: 0 });
+      dragging = true; cv.setPointerCapture(e.pointerId);
+      return;
+    }
+    cancelArmed();           // 點空白＝取消；點其他己方棋子＝改拉那顆
   }
+  if (state !== 'aim' || !p) return;
+  drag = { p, sx: m.x, sy: m.y, x: m.x, y: m.y, notch: 0, v1: p.T.locked ? speedForOneStep(p) : 0 };
+  dragging = true; cv.setPointerCapture(e.pointerId); SFX.play('click');
 });
 cv.addEventListener('pointermove', e => {
-  if (!drag) return;
+  if (!dragging) return;
   Object.assign(drag, pos(e));
   const { len, pw } = pullInfo(), notch = Math.floor(Math.min(len, MAXPULL) / 12);   // 拉動時的齒輪聲
   if (notch !== drag.notch) { SFX.play('ratchet', pw); drag.notch = notch; }
 });
 cv.addEventListener('pointerup', () => {
-  if (!drag) return;
-  const { len, pw, vx, vy } = pullInfo(), p = drag.p;
-  drag = null; mover = p;
-  if (len < 10) { moved = false; onStop(); return; }   // 輕點（或拉回棋子上放開）：原地瞄準，可取消
-  moved = true;
+  if (!dragging) return;
+  dragging = false;
+  const { len } = pullInfo();
+  if (drag.prev) {           // 已瞄準狀態下再按同一顆
+    if (len < TAP) { Object.assign(drag, drag.prev); launch(); }
+    else { drag.prev = null; setMsg(armedMsg()); }
+    return;
+  }
+  if (len < TAP) {           // 輕點（或拉回原處放開）：原地瞄準，可取消
+    mover = drag.p; drag = null; moved = false; onStop(); return;
+  }
+  state = 'armed'; setSkip(true);   // 放開後先不發射，等確認
+  setMsg(armedMsg());
+});
+const armedMsg = () => '路線已設定：按「發射」或再點一下棋子發射；拖曳棋子可重新調整；點空白處／「取消」／Esc 取消。';
+function cancelArmed(msg = '已取消，請重新選擇棋子。') {
+  drag = null; dragging = false; state = 'aim'; setSkip(false); setMsg(msg);
+}
+function launch() {
+  const { pw, vx, vy } = pullInfo(), p = drag.p;
+  drag = null; mover = p; moved = true;
   p.vx = vx; p.vy = vy; p.hd = Math.atan2(vy, vx);
   SFX.play('launch', pw);
   emit(p.x - Math.cos(p.hd) * R, p.y - Math.sin(p.hd) * R, 6, { k: 'smoke', sp: 70, life: 0.6, size: 8, col: '#b89a6a', dir: p.hd + Math.PI, spread: 1.4 });
-  state = 'moving';
-});
+  state = 'moving'; setSkip(false);
+}
+$('fire').onclick = () => { if (state === 'armed') launch(); };
 $('skip').onclick = () => {
+  if (state === 'armed') { cancelArmed(); return; }
   if (state !== 'target') return;
   if (!moved) { cancelSelect(); return; }
   targets = []; setSkip(false); state = 'fire'; timer = 0.2;
 };
 // Esc：取消拉動中或原地選取
 addEventListener('keydown', e => {
+  if (e.key === 'Enter' && state === 'armed' && !dragging) { launch(); return; }
   if (e.key !== 'Escape') return;
-  if (drag) { drag = null; setMsg('已取消拉動。'); }
+  if (state === 'armed') cancelArmed();
+  else if (drag) { drag = null; dragging = false; setMsg('已取消拉動。'); }
   else if (state === 'target' && !moved) cancelSelect();
 });
-cv.addEventListener('pointercancel', () => { drag = null; });
+cv.addEventListener('pointercancel', () => {
+  dragging = false;
+  if (state === 'armed') { if (drag.prev) { Object.assign(drag, drag.prev); drag.prev = null; } }
+  else drag = null;
+});
 $('restart').onclick = () => { SFX.init(); reset(); };
 $('mute').textContent = SFX.muted ? '🔇' : '🔊';
 $('mute').onclick = () => { SFX.init(); $('mute').textContent = SFX.toggle() ? '🔇' : '🔊'; };
@@ -629,18 +664,20 @@ function draw() {
   }
   let preview = [];
   if (drag) {
-    const p = drag.p, { len, pw, vx, vy } = pullInfo();
-    ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); line(p.x, p.y, drag.x, drag.y); ctx.setLineDash([]);
+    const p = drag.p, { len, pw, vx, vy, dx, dy } = pullInfo();
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); line(p.x, p.y, p.x - dx, p.y - dy); ctx.setLineDash([]);
     let ex = p.x, ey = p.y;
-    if (len >= 10) {
+    if (state === 'armed') { circle(p.x, p.y, R + 6); ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 3; ctx.stroke(); }
+    if (len >= TAP) {
       const pts = predict(p, vx, vy); [ex, ey] = pts[pts.length - 1];
       ctx.strokeStyle = SIDE[p.s].col; ctx.lineWidth = 2; ctx.beginPath();
       pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke();
       circle(ex, ey, R); ctx.stroke();
-      if (p.T.locked) setMsg(`${p.T.n[p.s]}未過河：只能往前走一格` + (crossed(p.s, ey) ? '（這步過河，升級霰彈槍！）' : ''));
+      if (!dragging) { /* 已瞄準：保留確認說明 */ }
+      else if (p.T.locked) setMsg(`${p.T.n[p.s]}未過河：只能往前走一格` + (crossed(p.s, ey) ? '（這步過河，升級霰彈槍！）' : ''));
       else setMsg(`${p.T.n[p.s]}（${p.T.w}）力道 ${Math.round(pw * 100)}%　射程 ${(p.T.range / C).toFixed(1)} 格　` +
                   (p.T.pellets ? '越近越痛（最多 ' + hearts(p.T.dmg) + '）' : '威力 ' + hearts(p.T.dmg)));
-    } else setMsg(`${p.T.n[p.s]}：往後拉移動` + (p.T.locked ? '（未過河，只能前進一格）' : '') + '；拉回棋子上放開＝原地瞄準（可取消），Esc 取消' +
+    } else if (dragging) setMsg(`${p.T.n[p.s]}：往後拉移動` + (p.T.locked ? '（未過河，只能前進一格）' : '') + '；放開後還要確認才會發射，拉回原處放開＝原地瞄準' +
                   (p.cd > 0 ? `　⚠ 裝填中還要 ${p.cd} 回合` : ''));
     const T = p.T.locked && crossed(p.s, ey) ? TYPES.P2 : p.T;   // 這步會過河就用霰彈槍預覽
     rangeRing({ T }, ex, ey);
