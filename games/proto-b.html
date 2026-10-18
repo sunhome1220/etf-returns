@@ -459,7 +459,7 @@ function physics(dt) {
 // ----- 定點移動：每次移動都停在棋盤交叉點上 -----
 const fwd = p => p.s ? 1 : -1;
 const crossed = (s, y) => s ? y > gy(4.5) : y < gy(4.5);
-// 只能走一格的情況：未過河的兵（只能往前）、已過河的相（上下左右）
+// 只能走一格的情況：未過河的兵（只能往前）
 const oneStep = p => p.T.locked;
 // 這顆棋子可以停的交叉點（帥／將限九宮）
 function pointsFor(p) {
@@ -467,6 +467,7 @@ function pointsFor(p) {
   for (let c = 0; c <= 8; c++)
     for (let r = 0; r <= 9; r++) {
       const x = gx(c), y = gy(r);
+      if (p.T.aa && crossed(p.s, y)) continue;   // 相／象不能過河
       if (p.T.palace && (x < x0 - 1 || x > x1 + 1 || y < y0 - 1 || y > y1 + 1)) continue;
       pts.push([x, y]);
     }
@@ -800,9 +801,12 @@ function impact(a, b, dmg = (a.fireT || a.T).dmg, note = '') {
   checkWin();
   return res;
 }
+const CROSSERS = ['R', 'N', 'C', 'P'];   // 能過河的兵種（含已升官的士官長）
 function checkWin() {
   for (const s of [0, 1])
     if (!pieces.some(p => p.s === s && p.t === 'K' && p.hp > 0)) winner = 1 - s;
+  // 雙方都沒有能過河的棋子（只剩帥／仕／相）就沒人打得到對方，直接和局
+  if (winner === null && !alive().some(p => CROSSERS.includes(p.t))) { winner = 2; setMsg('雙方都沒有能過河的棋子（只剩帥／仕／象），和局！'); }
 }
 function endTurn() {
   if (online() && !myTurn()) {   // 對手的回合：動畫播完後等對方送來的結果
@@ -1333,12 +1337,12 @@ function draw() {
   if (state === 'over') {
     ctx.fillStyle = '#000a'; ctx.fillRect(0, 0, W, H);
     ctx.textAlign = 'center';
-    const title = online() || mode === 'ai' ? (winner === mySide ? '你贏了！' : mode === 'ai' ? '電腦獲勝…' : '你輸了…') : SIDE[winner].name + ' 勝利！';
+    const title = online() || mode === 'ai' ? (winner === 2 ? '和局' : winner === mySide ? '你贏了！' : mode === 'ai' ? '電腦獲勝…' : '你輸了…') : winner === 2 ? '和局' : SIDE[winner].name + ' 勝利！';
     // 面對面時上下各一份，兩位玩家都看得到
     for (const ang of mode === 'face' ? [0, Math.PI] : [0]) {
       ctx.save(); ctx.translate(W / 2, H / 2); ctx.rotate(ang);
       const dy = mode === 'face' ? 90 : 0;
-      ctx.fillStyle = winner ? '#fff' : '#ff7b6b'; ctx.font = 'bold 44px sans-serif'; ctx.fillText(title, 0, dy - 10);
+      ctx.fillStyle = winner === 0 ? '#ff7b6b' : '#fff'; ctx.font = 'bold 44px sans-serif'; ctx.fillText(title, 0, dy - 10);
       ctx.fillStyle = '#fff'; ctx.font = '18px sans-serif'; ctx.fillText('點擊棋盤重新開始', 0, dy + 34);
       ctx.restore();
     }
@@ -1702,6 +1706,7 @@ showCardsBtn();
 // ===== 更新內容 =====
 // 每次改版在最上面加一筆；版本更新後第一次開啟會自動彈出新內容，☰ 選單也可隨時查看
 const CHANGELOG = [
+  { v: '2026-10-18.34', t: ['相／象不能過河（只能待在自己這一半）', '雙方都沒有能過河的棋子（只剩帥、仕、象）時直接和局'] },
   { v: '2026-10-18.33', t: ['炮冷卻期間完全無法攻擊（不再能用步槍近戰）', '戰地醫療每回合只治療象範圍內「血量最少」的一位友軍', '強化卡牌不能疊加：每張卡每方只能拿一次'] },
   { v: '2026-10-18.32', t: ['俥的機槍威力改回 2 心，但射擊後要冷卻 1 回合（期間改用 1 心步槍）', '各棋攻擊時，有方向性的武器（機槍、火箭筒、火炮、步槍、霰彈槍、防空砲）會轉向攻擊方向'] },
   { v: '2026-10-18.31', t: ['相的防空改成防空砲樣式：一串橘黃曳光彈射向來襲的火箭／砲彈，在空中炸成黑色高射砲煙團與破片（不再是一發飛彈）'] },
@@ -1731,7 +1736,7 @@ $('mLog').onclick = () => showLog(true);
 
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.33';
+const VERSION = '2026-10-18.34';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
