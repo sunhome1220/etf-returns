@@ -676,7 +676,7 @@ function intercept(a, b, aim, f) {
     SFX.play('boom', false); shake = Math.max(shake, 4);
     if (b.dash) b.dash.back = true;   // 衝出來擋的士退回
     fx.push({ k: 'txt', x: ix, y: iy - 10, txt: '攔截！', t: 1.2, T: 1.2, col: '#2f6fb5', side: e.s });
-    setMsg(`${e.T.n[e.s]}攔截了${a.T.n[a.s]}的${a.T.proj === 'rocket' ? '火箭' : '砲彈'}！（${e.T.n[e.s]}冷卻 ${e.T.reload} 回合）`);
+    setMsg(`${e.T.n[e.s]}攔截了${a.T.n[a.s]}的${a.T.proj === 'rocket' ? '火箭' : '砲彈'}！（${e.T.n[e.s]}冷卻中：對方接下來 ${e.T.reload} 次攻擊攔截不了）`);
     timer = Math.max(timer, 0.9);
   };
   return f;
