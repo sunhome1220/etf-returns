@@ -755,14 +755,19 @@ function intercept(a, b, aim, f) {
   if (!e) return f;
   const [ix, iy] = projPos({ ...f, t: f.T * (1 - STOP_AT) }), flight = f.T * STOP_AT;
   e.cd = e.T.reload; e.cdFresh = true; e.lock = { t: 0.9, a: Math.atan2(iy - e.y, ix - e.x) };   // 雷達鎖定目標
-  fx.push({ k: 'rocket', x1: e.x, y1: e.y, x2: ix, y2: iy, dir: Math.atan2(iy - e.y, ix - e.x), side: e.s,
-            t: flight * 0.7, T: flight * 0.7, delay: flight * 0.3, start: () => { SFX.play('aa'); muzzle(e.x, e.y, Math.atan2(iy - e.y, ix - e.x), false); } });
+  const dir = Math.atan2(iy - e.y, ix - e.x);   // 防空砲：一串曳光彈快速射向落點（不是飛彈）
+  for (let i = 0; i < 7; i++) {
+    const j = i ? rnd(5) : 0, px = -Math.sin(dir) * j, py = Math.cos(dir) * j;
+    fx.push({ k: 'tracer', x1: e.x + Math.cos(dir) * (R + 6), y1: e.y + Math.sin(dir) * (R + 6), x2: ix + px, y2: iy + py, dir, side: e.s,
+              t: flight * 0.4, T: flight * 0.4, delay: flight * 0.3 + i * 0.045 + 0.001,
+              start: () => { if (i === 0) SFX.play('aa'); muzzle(e.x, e.y, dir, false); e.recoil = 1; } });
+  }
   f.stopAt = STOP_AT;
   f.done = () => {   // 空中爆炸
-    flashAt(ix, iy, 40, 0.15);
-    parts.push({ x: ix, y: iy, vx: 0, vy: 0, t: 0.35, L: 0.35, size: 45, k: 'ring', drag: 0 });
-    emit(ix, iy, 24, { k: 'spark', sp: 260, life: 0.45, size: 2.5, col: '#ffd23f' });
-    emit(ix, iy, 8, { k: 'smoke', sp: 40, life: 1, size: 11, col: '#777' });
+    flashAt(ix, iy, 30, 0.12);   // 高射砲的空爆：黑色煙團＋橘色火球＋四散破片
+    emit(ix, iy, 7, { k: 'smoke', sp: 55, life: 1.2, size: 13, col: '#2e2e2e' });
+    emit(ix, iy, 5, { k: 'fire', sp: 60, life: 0.25, size: 9, col: '#ff9a2e' });
+    emit(ix, iy, 16, { k: 'spark', sp: 300, life: 0.35, size: 1.6, col: '#ffe9a0' });
     SFX.play('boom', false); shake = Math.max(shake, 4);
     fx.push({ k: 'txt', x: ix, y: iy - 10, txt: '攔截！', t: 1.2, T: 1.2, col: '#2f6fb5', side: e.s });
     setMsg(`${e.T.n[e.s]}攔截了${a.T.n[a.s]}的${a.T.proj === 'rocket' ? '火箭' : '砲彈'}！（${e.T.n[e.s]}冷卻中：對方接下來 ${e.T.reload} 次攻擊攔截不了）`);
@@ -1244,7 +1249,11 @@ function drawProj(f) {
     }
     return;
   }
-  if (f.k === 'bullet') {
+  if (f.k === 'tracer') {   // 曳光彈：橘紅尾跡＋亮黃彈頭
+    const bx = x - Math.cos(f.dir) * 26, by = y - Math.sin(f.dir) * 26;
+    ctx.lineCap = 'round'; ctx.strokeStyle = '#ff6a1fcc'; ctx.lineWidth = 3; line(bx, by, x, y);
+    ctx.strokeStyle = '#fff3a8'; ctx.lineWidth = 2; line(x - Math.cos(f.dir) * 10, y - Math.sin(f.dir) * 10, x, y); ctx.lineCap = 'butt';
+  } else if (f.k === 'bullet') {
     const bx = x - Math.cos(f.dir) * 16, by = y - Math.sin(f.dir) * 16;
     ctx.strokeStyle = '#fff7c2'; ctx.lineWidth = 3; line(bx, by, x, y);
     ctx.strokeStyle = f.side ? '#555' : '#ff6b4a'; ctx.lineWidth = 1; line(bx, by, x, y);
@@ -1684,6 +1693,7 @@ showCardsBtn();
 // ===== 更新內容 =====
 // 每次改版在最上面加一筆；版本更新後第一次開啟會自動彈出新內容，☰ 選單也可隨時查看
 const CHANGELOG = [
+  { v: '2026-10-18.31', t: ['相的防空改成防空砲樣式：一串橘黃曳光彈射向來襲的火箭／砲彈，在空中炸成黑色高射砲煙團與破片（不再是一發飛彈）'] },
   { v: '2026-10-18.30', t: ['冷卻顯示更清楚：冷卻中的棋子整顆變暗，右上角出現橘色倒數徽章（數字＝還要幾回合／幾次，黃色外圈＝進度）；冷卻完畢的炮、傌、象右上角亮綠燈表示可用'] },
   { v: '2026-10-18.29', t: ['仕新增近距離攻擊：手槍 1 心，可打相鄰與斜角的敵人'] },
   { v: '2026-10-18.28', t: ['炮射擊後需冷卻 1 回合（期間改用步槍）', '俥的機槍威力降為 1.5 心'] },
@@ -1710,7 +1720,7 @@ $('mLog').onclick = () => showLog(true);
 
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.30';
+const VERSION = '2026-10-18.31';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
