@@ -41,6 +41,25 @@
             font-weight:700; box-shadow:0 4px 14px #0008; padding:10px 18px; border-radius:20px; }
   #newver[hidden] { display:none; }
   #ver { color:#a9bcaf; font-size:12px; text-align:right; margin-top:8px; }
+  #cardPick, #logOv { position:fixed; inset:0; background:#000c; display:flex; align-items:center; justify-content:center; z-index:15; padding:14px; overflow:auto; }
+  #logOv { z-index:30; }
+  #cardPick[hidden], #logOv[hidden] { display:none; }
+  .pbox { background:#2b3a31; border:1px solid #6b8a74; border-radius:12px; padding:16px; width:100%; max-width:400px; -webkit-user-select:none; user-select:none; }
+  .pbox.flip { transform:rotate(180deg); }
+  .pbox h2 { margin:0 0 4px; font-size:19px; color:#ffd166; text-align:center; }
+  .pbox .sub { color:#a9bcaf; font-size:13px; text-align:center; margin-bottom:10px; }
+  .cbtn { display:flex; gap:12px; align-items:center; width:100%; margin:8px 0; padding:10px 12px; text-align:left; background:#f3e2bd; border:2px solid #b8923f; border-radius:10px; color:#2b2118; }
+  .cbtn:active { transform:scale(.98); background:#ffe9a8; }
+  .cbtn .ic { font-size:34px; line-height:1; flex:none; width:44px; text-align:center; }
+  .cbtn b { font-size:16px; display:block; }
+  .cbtn span { font-size:13px; color:#5a4632; }
+  .cbtn em { font-style:normal; font-size:11px; color:#a85a1a; }
+  #perks { width:100%; max-width:560px; padding:2px 14px 0; font-size:12px; color:#b9cdbf; min-height:1.2em; }
+  #toast { position:fixed; top:54px; left:50%; transform:translateX(-50%); z-index:25; background:#ffd166; color:#3a2a00; font-weight:700; padding:8px 16px; border-radius:18px; box-shadow:0 4px 14px #0008; pointer-events:none; opacity:0; transition:opacity .25s; max-width:92vw; text-align:center; }
+  #toast.on { opacity:1; }
+  #logOv ul { margin:4px 0 10px; padding-left:20px; font-size:13.5px; color:#dfe9e2; }
+  #logOv h3 { margin:12px 0 2px; font-size:15px; color:#ffd166; }
+  #logOv h3 small { color:#8fa595; font-weight:400; }
   #netStatus { margin-top:10px; min-height:1.5em; color:#ffd166; font-size:14px; word-break:break-all; }
   table { margin:10px 0 20px; border-collapse:collapse; font-size:13px; }
   td, th { padding:3px 8px; border-bottom:1px solid #3d4f44; text-align:center; }
@@ -54,10 +73,15 @@
 </header>
 <div id="bar"><div id="info"></div><button id="fire" hidden>出發</button><button id="skip" disabled>不射擊</button></div>
 <canvas id="cv"></canvas>
+<div id="perks"></div>
 <table id="legend"></table>
+<div id="toast"></div>
+<div id="cardPick" hidden><div class="pbox" id="cardBox"><h2 id="cardTitle"></h2><div class="sub" id="cardSub"></div><div id="cardList"></div></div></div>
+<div id="logOv" hidden><div class="pbox"><h2>📋 更新內容</h2><div id="logBody"></div><button id="logClose" style="width:100%;margin-top:8px">知道了</button></div></div>
 <button id="newver" hidden>🆕 有新版本，點此更新</button>
 <div id="lobby" hidden><div class="box">
   <h2>對戰模式</h2>
+  <button id="mCards">🃏 強化卡牌：開<br><small>開局與每 10 回合三選一強化（連線時以房主設定為準）</small></button>
   <button id="mLocal">📱 同裝置・並排<br><small>兩人輪流用同一支手機／電腦</small></button>
   <button id="mFace">🔄 同裝置・面對面<br><small>平板放桌上，兩人對坐，黑方文字倒轉</small></button>
   <h3>🌐 兩台裝置連線</h3>
@@ -70,6 +94,7 @@
   </div>
   <h3>其他</h3>
   <button id="mRestart">↺ 重新開始這局</button>
+  <button id="mLog">📋 更新內容</button>
   <button id="mReload">🔄 重新整理（載入最新版）</button>
   <div id="ver"></div>
   <button id="mClose">✕ 關閉</button>
@@ -107,6 +132,20 @@ const TYPES = {
 // 炮、傌的主武器冷卻時，改用步槍（1 心、射程 1.8 格、直射）
 const RIFLE = { w: '步槍', snd: 'rifle', proj: 'bullet', dmg: 1, range: 1.8 * C, min: 0, indirect: false, splash: 0, reload: 0, backup: false, ortho: false, knightOnly: false, isAlt: true };
 for (const T of Object.values(TYPES)) if (T.backup) T.alt = { ...T, ...RIFLE };
+// 每方各有一份兵種數值表 TT[side][key]（含強化卡的加成）；棋子的 p.T 指向自己那方的表
+let mods = [{}, {}], cardCount = [{}, {}], turnsPlayed = [0, 0];
+const TT = [{}, {}];
+function buildTypes(side) {
+  for (const k of Object.keys(TYPES)) {
+    const T = { ...TYPES[k], id: k }, m = mods[side][k] || {};
+    for (const [st, v] of Object.entries(m)) T[st] = (T[st] || 0) + v;
+    if (T.reload !== undefined) T.reload = Math.max(0, T.reload);
+    if (T.min !== undefined) T.min = Math.max(0, T.min);
+    delete T.alt; if (T.backup) T.alt = { ...T, ...RIFLE };
+    TT[side][k] = T;
+  }
+}
+function rebuildAll() { buildTypes(0); buildTypes(1); for (const p of pieces) p.T = TT[p.s][p.T.id]; }
 const weaponOf = a => a.cd > 0 && a.T.alt ? a.T.alt : a.T;   // 目前可用的武器（單一武器的棋子）
 // 目標 b 相對於 (x,y) 是否剛好在「日」字位置
 function tianOffset(x, y, b) {   // 目標 b 是否在 (x,y) 的田字對角點（斜 2 格）
@@ -249,6 +288,8 @@ const SFX = (() => {
                       noise('bandpass', 1400, 400, 0.25 * T, 0.5, 0, 0.8, 0.3);
                       for (let i = 0; i < (big ? 7 : 3); i++) noise('bandpass', (1500 + Math.random() * 4000), 1000, 0.05, 0.14 * Math.random() + 0.06, 0.1 + Math.random() * 0.6 * T, 2, 0.3); },
     // 勝利：銅管號角（鋸齒波經低通濾波）
+    card:    () => { tone('triangle', 660, 990, 0.12, 0.12, 0, 0.3); tone('triangle', 990, 1320, 0.2, 0.1, 0.09, 0.4); noise('highpass', 4000, 9000, 0.08, 0.1, 0, 1, 0.2); },
+    heal:    () => [784, 988, 1319].forEach((f, i) => tone('sine', f, f * 1.01, 0.3, 0.12, i * 0.07, 0.4)),
     win:     () => [523, 659, 784, 1047].forEach((f, i) => { tone('sawtooth', f, f, i === 3 ? 0.9 : 0.32, 0.11, i * 0.15, 0.4, 0.02, 2200); tone('triangle', f / 2, f / 2, i === 3 ? 0.9 : 0.32, 0.12, i * 0.15, 0.2, 0.02); }),
     promote: () => [392, 523, 659].forEach((f, i) => tone('sawtooth', f, f, 0.14, 0.08, i * 0.08, 0.2, 0.01, 2000)),
     // 運輸機低空飛過：螺旋槳引擎的低頻嗡鳴（振幅快速起伏）＋都卜勒效應（逼近時音調高、遠離時降低）
@@ -269,7 +310,7 @@ const SFX = (() => {
                      noise('bandpass', 900, 4200, 0.4, 0.2, 0.02, 2, 0.3, 0.03); tone('sawtooth', 160, 700, 0.4, 0.05, 0.02, 0.1, 0.03, 1500); },
   };
   // 各音效的音量修正（實測各音效最大振幅後調成大致平衡：槍聲 < 爆炸，撞擊／點擊聲較小）
-  const TRIM = { click: 9, launch: 4.5, pistol: 3.2, rifle: 2.4, mg: 0.65, shotgun: 2.7, rocket: 2, mortar: 2, hit: 2.7, boom: 1.1, aa: 1.3, plane: 1.3, thud: 2.2, win: 1.3, promote: 2, bump: 1 };
+  const TRIM = { click: 9, launch: 4.5, pistol: 3.2, rifle: 2.4, mg: 0.65, shotgun: 2.7, rocket: 2, mortar: 2, hit: 2.7, boom: 1.1, aa: 1.3, plane: 1.3, thud: 2.2, win: 1.3, promote: 2, bump: 1, card: 2, heal: 1.5 };
   // 以獨立的音量匯流排播放，使每個音效套用自己的修正值
   function run(n, a) {
     const g = TRIM[n] || 1, d0 = dry, w0 = wet;
@@ -338,17 +379,21 @@ function updParts(dt) {
   shake = Math.max(0, shake - 40 * dt);
 }
 
-function reset() {
+function reset(noPick = false) {
+  mods = [{}, {}]; cardCount = [{}, {}]; turnsPlayed = [0, 0]; pickQ = []; pickSide = null; waitingFor = null; incoming = [];
+  $('cardPick').hidden = true; buildTypes(0); buildTypes(1);
   pieces = [];
   for (let s = 0; s < 2; s++)
     for (const [t, c, r] of LAYOUT) {
-      const T = TYPES[t];
+      const T = TT[s][t];
       pieces.push({ s, t, T, x: gx(c), y: gy(s ? 9 - r : r), vx: 0, vy: 0, hp: T.hp, hd: s ? Math.PI / 2 : -Math.PI / 2, flash: 0, recoil: 0, cd: 0 });
     }
   aiGen++; aiBusy = false; aiPlan = null;   // 取消還沒執行的電腦動作
   turn = 0; state = 'aim'; sel = null; fx = []; moved = false; firedPiece = null; winner = null; targets = []; parts = []; decals = []; shake = 0;
   updateHeader(); $('skip').disabled = true;
   setMsg('拉動己方棋子移動（輕點＝原地不動），停下後點選要攻擊的敵人。');
+  renderPerks();
+  if (cardsOn && !noPick) beginPick([0, 1]);   // 開局：雙方各選一張強化卡
 }
 function updateHeader() {
   $('turn').textContent = online() ? (myTurn() ? `你的回合（${SIDE[turn].name}）` : `對手回合（${SIDE[turn].name}）`)
@@ -358,6 +403,7 @@ function updateHeader() {
   const bar = $('bar'), face = mode === 'face';
   if (face && turn === 0) cv.after(bar); else cv.before(bar);
   bar.classList.toggle('flip', face && turn === 1);
+  if (state === 'pick') $('turn').textContent = '選擇強化卡';
   if (online() && !myTurn() && state === 'aim') setMsg('等待對手操作…');
 }
 
@@ -442,7 +488,7 @@ function movesBase(p) {
   else if (oneStep(p)) cand = (p.T.locked ? [[0, fwd(p)]] : [[1, 0], [-1, 0], [0, 1], [0, -1]])
                          .map(([sx, sy]) => [p.x + sx * C, p.y + sy * C]).filter(([x, y]) => pts.some(at(x, y)));
   else cand = pts.filter(([x, y]) => { const d = Math.hypot(x - p.x, y - p.y); return d > 1 && d <= p.T.dist + 1 && (!(p.T.line || p.T.moveLine) || Math.abs(x - p.x) < 1 || Math.abs(y - p.y) < 1); });
-  if (p.T === TYPES.P2) cand = cand.filter(([x, y]) => (y - p.y) * fwd(p) > -1);   // 過河的兵（士官長）：可前進或橫移，不能往後退
+  if (p.T.id === 'P2') cand = cand.filter(([x, y]) => (y - p.y) * fwd(p) > -1);   // 過河的兵（士官長）：可前進或橫移，不能往後退
   return cand.filter(([x, y]) => !alive().some(q => at(x, y)([q.x, q.y])) && pathClear(p, x, y));
 }
 // 以初速 v 沿 (ux,uy) 直線滑行的距離（含河道摩擦、不考慮邊界反彈）
@@ -520,7 +566,7 @@ function shotgunSim(a, b, x = a.x, y = a.y, T = a.T) {
   }
   return { rays, count };
 }
-const pelletDmg = n => n ? Math.max(0.25, quarter(n / TYPES.P2.pellets * TYPES.P2.dmg)) : 0;
+const pelletDmg = (n, T) => n ? Math.max(0.25, quarter(n / T.pellets * T.dmg)) : 0;
 
 // 回傳 {p, ok, why, est}：在射程內的敵人、能否射擊、預估傷害
 function scan(a, x = a.x, y = a.y, T0 = null) {
@@ -534,7 +580,7 @@ function scan(a, x = a.x, y = a.y, T0 = null) {
     if (a.cd > 0 && !a.T.aa && !T.isAlt) return { p, ok: false, why: `裝填中 ${a.cd}` };
     if (d < T.min) return { p, ok: false, why: '太近' };
     if (!T.indirect && blocked(a, p, x, y)) return { p, ok: false, why: '被擋' };
-    return { p, ok: true, T, est: T.pellets ? pelletDmg(shotgunSim(a, p, x, y, T).count.get(p) || 0) : T.dmg };
+    return { p, ok: true, T, est: T.pellets ? pelletDmg(shotgunSim(a, p, x, y, T).count.get(p) || 0, T) : T.dmg };
   }).filter(Boolean);
 }
 // 兵過河後永久升級成霰彈兵
@@ -556,7 +602,7 @@ function airdrop(p) {
 function promoteCrossed() {
   for (const p of alive())
     if (p.T.locked && crossed(p.s, p.y)) {
-      p.T = TYPES.P2; p.hp = p.T.hp;   // 升官後滿血（3 心）
+      p.T = TT[p.s].P2; p.hp = p.T.hp;   // 升官後滿血（3 心）
       airdrop(p);
     }
 }
@@ -655,7 +701,7 @@ function shootAt(a, b, tx, ty, aim) {
       for (const r of rays) emit(r.x, r.y, 2, { k: 'spark', sp: 120, life: 0.18, size: 2, col: '#ffe066' });
       if (!count.size) { setMsg('霰彈全被擋下，沒有打中敵人。'); timer = Math.max(timer, 0.6); }
       const msgs = [];
-      for (const [p, n] of count) msgs.push(impact(a, p, pelletDmg(n), `（中 ${n} 發）`));
+      for (const [p, n] of count) msgs.push(impact(a, p, pelletDmg(n, T), `（中 ${n} 發）`));
       if (msgs.length) setMsg(`${T.n[a.s]} 霰彈槍：` + msgs.join('；'));
     } });
   } else {                             // 曲射砲：拋物線飛行
@@ -729,8 +775,12 @@ function endTurn() {
   }
   pieces.forEach(p => { p.cdFresh = false; });
   firedPiece = null;
-  turn = 1 - turn; state = 'aim'; targets = []; moved = false; setSkip(false); updateHeader();
+  turnsPlayed[turn]++;
+  turn = 1 - turn; state = 'aim'; targets = []; moved = false; setSkip(false);
+  healPhase(turn);
+  updateHeader();
   send({ t: 'end', snap: snapshot() });
+  maybeTurnPick();
 }
 function update(dt) {
   if (state === 'moving') {
@@ -902,7 +952,7 @@ function drawBoard() {
 }
 // 棋子上方的兵種圖示（在棋子的文字座標系，y < 0 為上方）
 function drawIcon(p) {
-  const k = p.T === TYPES.P2 ? 'P2' : p.t, dark = '#2b2b2b', acc = SIDE[p.s].col;
+  const k = p.T.id === 'P2' ? 'P2' : p.t, dark = '#2b2b2b', acc = SIDE[p.s].col;
   ctx.save(); ctx.translate(0, -R - 11); ctx.scale(1.25, 1.25); ctx.lineJoin = 'round';
   const fill = (c, fn) => { ctx.fillStyle = c; ctx.beginPath(); fn(); ctx.fill(); };
   if (k === 'K') {          // 軍官帽
@@ -956,7 +1006,7 @@ function drawPiece(p) {
   ctx.fillStyle = SIDE[p.s].col; ctx.font = 'bold 20px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText((p.T.face || p.T.n)[p.s], 0, 1);
   drawIcon(p);
-  if (p.T === TYPES.P2 && !p.drop) {   // 士官長：金色外圈＋官階標誌（三條 V 形臂章）
+  if (p.T.id === 'P2' && !p.drop) {   // 士官長：金色外圈＋官階標誌（三條 V 形臂章）
     circle(0, 0, R + 2); ctx.strokeStyle = '#e0a800'; ctx.lineWidth = 2.5; ctx.stroke();
     ctx.strokeStyle = '#e0a800'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
     for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(-14, R - 12 + i * 3.4 - 6); ctx.lineTo(-9, R - 6.5 + i * 3.4 - 6); ctx.lineTo(-4, R - 12 + i * 3.4 - 6); ctx.stroke(); }
@@ -1194,7 +1244,7 @@ function draw() {
       ctx.strokeStyle = SIDE[p.s].col; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); line(p.x, p.y, ex, ey); ctx.setLineDash([]);
       circle(ex, ey, R); ctx.stroke();
     }
-    const T = p.T.locked && crossed(p.s, ey) ? TYPES.P2 : null;   // 這步會過河就用霰彈槍預覽
+    const T = p.T.locked && crossed(p.s, ey) ? TT[p.s].P2 : null;   // 這步會過河就用霰彈槍預覽
     rangeRing(T ? { T } : p, ex, ey);
     for (const [x, y] of sel.moves) {   // 可走的點
       const on = sel.dest && sel.dest[0] === x && sel.dest[1] === y;
@@ -1245,7 +1295,7 @@ let last = performance.now();
 function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; draw(); requestAnimationFrame(loop); }
 
 $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動(格)</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
-  Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${(T.dist / C).toFixed(1)}</td>` +
+  Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${T.knight ? '日字' : T.aa ? '田字' : T.guard ? '斜 1' : T.dist >= 9 * C ? '直線不限' : (T.dist / C).toFixed(1)}</td>` +
     `<td>${T.guard ? '護衛' : T.aa ? '手槍 ' + (T.melee / C).toFixed(1) + '／田字／攔截 ' + (T.aa / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${T.guard ? '-' : hearts(T.dmg)}</td>` +
     `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；走法同車；只能打同一橫線／直線上、距離 4～5.2 格的目標；沒有冷卻，但近距離毫無辦法` : T.guard ? '限九宮斜走一格；帥被攻擊時衝出來替帥擋下（炮的波及擋不住）' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（攔截後冷卻：對方接下來 ${T.reload} 次攻擊攔截不了）；手槍可打相鄰與田字對角點的敵人；走田字（象眼被塞就過不去；田字走不了時改走一步）` : T.line ? '走法如傳統象棋的車：橫線／直線不限距離（不能穿過棋子）；機槍只能打同一橫線／直線上的目標（比炮短 1 格），直射會被擋' : T.knight ? '走日字（可跳過棋子），蹩馬腳不能走；日字都走不了時改走一步；火箭只能打日字位置、可被相攔截；近戰隨時可用步槍（1 心）' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛；可前進或橫移，不能往後退' : '直射，會被擋'}${T.alt && !T.indirect ? `；射後裝填 ${T.reload} 回合（期間改用步槍）` : ''}</td></tr>`).join('');
 // ===== 電腦對戰（AI） =====
@@ -1261,12 +1311,12 @@ const AI_DELAY = 450;   // 電腦每步之間的停頓（毫秒），讓玩家�
 let aiLevel = 3, aiGen = 0, aiBusy = false, aiPlan = null;
 const aiSide = () => 1 - mySide;
 const VALUE = { K: 30, R: 9, N: 7, C: 7, E: 5, G: 4, P: 2 };
-const unitValue = p => p.T === TYPES.P2 ? 6 : VALUE[p.t];
+const unitValue = p => p.T.id === 'P2' ? 6 : VALUE[p.t];
 // a 位於 (x,y)、用武器 T 攻擊 b 時，各棋子會受到多少傷害
 function predictAttack(a, x, y, T, b) {
   const dm = new Map(), add = (p, d) => { if (d > 0) dm.set(p, (dm.get(p) || 0) + d); }, from = { x, y };
   if (T.pellets) {
-    for (const [p, n] of shotgunSim(a, b, x, y, T).count) add(guardFor(p, from) || p, pelletDmg(n));
+    for (const [p, n] of shotgunSim(a, b, x, y, T).count) add(guardFor(p, from) || p, pelletDmg(n, T));
     return dm;
   }
   if (flies(T) && interceptorFor(b.s, b.x, b.y)) return dm;   // 會被防空攔下
@@ -1298,7 +1348,7 @@ function actionsFor(side) {
   for (const p of alive()) {
     if (p.s !== side) continue;
     for (const [x, y, mv] of [[p.x, p.y, false], ...movesFor(p).map(([x, y]) => [x, y, true])]) {
-      const T0 = p.T.locked && crossed(p.s, y) ? TYPES.P2 : null;
+      const T0 = p.T.locked && crossed(p.s, y) ? TT[p.s].P2 : null;
       for (const t of scan(p, x, y, T0)) if (t.ok) acts.push({ p, x, y, mv, T: t.T, b: t.p });
       if (mv) acts.push({ p, x, y, mv, T: T0 || p.T, b: null });
     }
@@ -1383,9 +1433,175 @@ function aiTick() {
   setTimeout(() => { if (gen !== aiGen) return; aiBusy = false; step(); }, AI_DELAY);
 }
 
+// ===== 強化卡牌 =====
+// 開局雙方各選 1 張；之後每方自己的每第 10 個回合開始時再選 1 張（三選一）。強化以「每方一份數值表」累加，
+// 棋子的傷害、射程、血量、冷卻、防空範圍等都直接讀取這份表，所以對所有規則（含電腦對戰、連線同步）一律生效。
+let cardsOn = true;
+try { cardsOn = localStorage.getItem('rc-cards') !== '0'; } catch (e) {}
+{ const q = new URLSearchParams(location.search).get('cards'); if (q === '0') cardsOn = false; else if (q === '1') cardsOn = true; }
+const CARDS = [
+  { id: 'r_dmg', ic: '🔫', name: '俥・加裝彈鏈', desc: '俥的機槍威力 +0.5 心', need: 'R', max: 3, fx: { R: { dmg: 0.5 } } },
+  { id: 'r_rng', ic: '🎯', name: '俥・長管槍身', desc: '俥的射程 +1 格', need: 'R', max: 2, fx: { R: { range: C } } },
+  { id: 'r_hp',  ic: '🛡️', name: '俥・加厚裝甲', desc: '俥的血量上限 +1 心，並回復 1 心', need: 'R', max: 2, fx: { R: { hp: 1 } } },
+  { id: 'c_dmg', ic: '💣', name: '炮・高爆彈頭', desc: '炮的威力 +0.5 心', need: 'C', max: 3, fx: { C: { dmg: 0.5 } } },
+  { id: 'c_rng', ic: '📡', name: '炮・增程火藥', desc: '炮的射程 +1.5 格', need: 'C', max: 2, fx: { C: { range: 1.5 * C } } },
+  { id: 'c_min', ic: '↔️', name: '炮・近距調校', desc: '炮的最小距離 −1 格', need: 'C', max: 3, fx: { C: { min: -C } }, cond: s => TT[s].C.min > 0 },
+  { id: 'c_spl', ic: '💥', name: '炮・擴大爆風', desc: '炮的波及範圍 +0.5 格', need: 'C', max: 2, fx: { C: { splash: 0.5 * C } } },
+  { id: 'n_dmg', ic: '🚀', name: '傌・穿甲火箭', desc: '傌的火箭威力 +0.5 心', need: 'N', max: 3, fx: { N: { dmg: 0.5 } } },
+  { id: 'n_rel', ic: '⚙️', name: '傌・自動裝填', desc: '傌的火箭冷卻 −1 回合（可降到無冷卻）', need: 'N', max: 1, fx: { N: { reload: -1 } }, cond: s => TT[s].N.reload > 0 },
+  { id: 'n_spl', ic: '🎆', name: '傌・破片彈頭', desc: '傌的火箭也有範圍傷害（相鄰 1/2、斜角 1/4）', need: 'N', max: 1, fx: { N: { splash: 1.5 * C } } },
+  { id: 'e_aa',  ic: '📶', name: '象・擴大雷達', desc: '象的防空範圍 +1 格', need: 'E', max: 3, fx: { E: { aa: C } } },
+  { id: 'e_heal', ic: '💚', name: '象・戰地醫療', desc: '象每回合開始替 2.5 格內友軍回復 ½ 心（可疊加）', need: 'E', max: 3, fx: { E: { healAmt: 0.5 } } },
+  { id: 'e_rel', ic: '⚡', name: '象・快速冷卻', desc: '象攔截後不再冷卻', need: 'E', max: 1, fx: { E: { reload: -1 } }, cond: s => TT[s].E.reload > 0 },
+  { id: 'e_dmg', ic: '🔫', name: '象・加強手槍', desc: '象的手槍威力 +1 心', need: 'E', max: 2, fx: { E: { dmg: 1 } } },
+  { id: 'g_hp',  ic: '⛑️', name: '仕・防彈鋼盔', desc: '仕的血量上限 +1 心，並回復 1 心', need: 'G', max: 2, fx: { G: { hp: 1 } } },
+  { id: 'k_hp',  ic: '🏰', name: '帥・鐵壁', desc: '帥／將的血量上限 +1 心，並回復 1 心', need: 'K', max: 2, fx: { K: { hp: 1 } } },
+  { id: 'k_dmg', ic: '🎖️', name: '帥・指揮官配槍', desc: '帥／將的手槍威力 +1 心', need: 'K', max: 2, fx: { K: { dmg: 1 } } },
+  { id: 'p_dmg', ic: '🪖', name: '兵・火力全開', desc: '兵與士官長的槍械威力 +0.5 心', need: 'P', max: 3, fx: { P: { dmg: 0.5 }, P2: { dmg: 0.5 } } },
+  { id: 'p_hp',  ic: '🦺', name: '兵・防彈背心', desc: '兵與士官長的血量上限 +1 心，並回復 1 心', need: 'P', max: 2, fx: { P: { hp: 1 }, P2: { hp: 1 } } },
+  { id: 'all_rng', ic: '🔭', name: '全軍・望遠鏡', desc: '所有武器射程 +0.5 格', max: 2, fx: Object.fromEntries(['K', 'R', 'N', 'C', 'E', 'P', 'P2'].map(k => [k, { range: 0.5 * C }])) },
+  { id: 'all_heal', ic: '🚑', name: '全軍・急救包', desc: '所有己方棋子立即回復 1 心', max: 3, instant: s => { for (const p of pieces) if (p.s === s && p.hp > 0 && p.hp < p.T.hp) { const h = Math.min(1, p.T.hp - p.hp); p.hp += h; healFX(p, h); } }, cond: s => pieces.some(p => p.s === s && p.hp > 0 && p.hp < p.T.hp) },
+  { id: 'sup',   ic: '📦', name: '空投補給', desc: '傷得最重的一顆己方棋子立即回滿血', max: 5, instant: s => { let best = null, miss = 0; for (const p of pieces) if (p.s === s && p.hp > 0 && p.T.hp - p.hp > miss) { best = p; miss = p.T.hp - p.hp; } if (best) { healFX(best, miss); best.hp = best.T.hp; } }, cond: s => pieces.some(p => p.s === s && p.hp > 0 && p.hp < p.T.hp) },
+];
+const cardOf = id => CARDS.find(c => c.id === id);
+let pickQ = [], pickSide = null, waitingFor = null, incoming = [];
+function cardOk(c, side) {
+  if ((cardCount[side][c.id] || 0) >= c.max) return false;
+  if (c.need && !pieces.some(p => p.s === side && p.hp > 0 && p.t === c.need)) return false;
+  return !c.cond || c.cond(side);
+}
+function drawOffers(side) {
+  const pool = CARDS.filter(c => cardOk(c, side)), out = [];
+  while (out.length < 3 && pool.length) out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  return out;
+}
+function applyCard(side, id) {
+  const c = cardOf(id); if (!c) return;
+  cardCount[side][id] = (cardCount[side][id] || 0) + 1;
+  for (const [k, st] of Object.entries(c.fx || {})) {
+    mods[side][k] = mods[side][k] || {};
+    for (const [stat, v] of Object.entries(st)) mods[side][k][stat] = (mods[side][k][stat] || 0) + v;
+  }
+  buildTypes(side);
+  for (const p of pieces) if (p.s === side) {
+    p.T = TT[side][p.T.id];
+    const bonus = c.fx && c.fx[p.T.id] && c.fx[p.T.id].hp;
+    if (bonus && p.hp > 0) p.hp = Math.min(p.T.hp, p.hp + bonus);
+  }
+  if (c.instant) c.instant(side);
+  SFX.play('card'); toast(`${SIDE[side].name}獲得強化：${c.ic} ${c.name}`); renderPerks();
+}
+// 戰地醫療：side 方回合開始時，象為 2.5 格內友軍回復血量（多隻象不疊加，取最大）
+function healPhase(side) {
+  const hs = alive().filter(p => p.s === side && p.T.healAmt > 0);
+  if (!hs.length) return;
+  let any = false;
+  for (const q of alive()) if (q.s === side && q.hp < q.T.hp) {
+    const amt = Math.max(0, ...hs.filter(h => Math.hypot(h.x - q.x, h.y - q.y) <= 2.5 * C + 1).map(h => h.T.healAmt));
+    if (amt > 0) { const h = Math.min(amt, q.T.hp - q.hp); q.hp += h; healFX(q, h); any = true; }
+  }
+  if (any) SFX.play('heal');
+}
+function healFX(q, amt) {
+  fx.push({ k: 'txt', x: q.x, y: q.y - R, txt: '+' + hearts(amt), t: 1.3, T: 1.3, col: '#159447', side: q.s });
+  emit(q.x, q.y, 10, { k: 'spark', sp: 70, life: 0.7, size: 2.5, col: '#7dff9a' });
+}
+let toastTimer = 0;
+function toast(t) { const e = $('toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => e.classList.remove('on'), 2600); }
+function renderPerks() {
+  const part = s => { const l = Object.entries(cardCount[s]).map(([id, n]) => `${cardOf(id).ic}${cardOf(id).name.split('・')[1] || cardOf(id).name}${n > 1 ? '×' + n : ''}`); return l.length ? `<b>${SIDE[s].name}</b> ${l.join('、')}` : ''; };
+  $('perks').innerHTML = [part(0), part(1)].filter(Boolean).join('　｜　');
+}
+// 選牌流程：pickQ 依序處理；自己這台裝置上的人類顯示三選一，電腦自動選，連線對手則等他的選擇訊息
+function beginPick(sides) { pickQ = sides.slice(); state = 'pick'; sel = null; targets = []; setSkip(false); nextPick(); }
+function nextPick() {
+  if (!pickQ.length) {
+    pickSide = null; waitingFor = null; $('cardPick').hidden = true;
+    if (state === 'pick') state = 'aim';
+    updateHeader();
+    if (online() && !myTurn()) setMsg('等待對手操作…'); else setMsg('強化完成！' + (turn === 0 || !online() ? '請選擇棋子。' : ''));
+    return;
+  }
+  const side = pickSide = pickQ.shift(), mine = mode === 'local' || mode === 'face' || mySide === side;
+  state = 'pick'; updateHeader();
+  if (mode === 'ai' && side === aiSide()) {
+    $('cardPick').hidden = true; setMsg('電腦正在選擇強化卡…');
+    const gen = aiGen; setTimeout(() => {
+      if (gen !== aiGen || pickSide !== side) return;
+      const o = drawOffers(side); if (o.length) applyCard(side, o[Math.floor(Math.random() * o.length)].id);
+      nextPick();
+    }, 900);
+  } else if (mine) showCards(side);
+  else { $('cardPick').hidden = true; waitingFor = side; setMsg(`等待對手選擇強化卡…`); drainIncoming(); }
+}
+function showCards(side) {
+  const offers = drawOffers(side);
+  if (!offers.length) { nextPick(); return; }
+  $('cardTitle').textContent = `${SIDE[side].name}・選擇一張強化卡`;
+  $('cardSub').textContent = '三選一，效果立刻生效；之後每 10 回合再選一次';
+  $('cardBox').classList.toggle('flip', mode === 'face' && side === 1);   // 面對面：黑方這邊的畫面倒轉
+  const list = $('cardList'); list.innerHTML = '';
+  for (const c of offers) {
+    const b = document.createElement('button'); b.className = 'cbtn';
+    const n = cardCount[side][c.id] || 0;
+    b.innerHTML = `<div class="ic">${c.ic}</div><div><b>${c.name}</b><span>${c.desc}</span>${n ? `<br><em>已持有 ${n} 張，效果疊加</em>` : ''}</div>`;
+    b.onclick = () => chooseCard(side, c.id);
+    list.appendChild(b);
+  }
+  $('cardPick').hidden = false; setMsg('請選擇強化卡。');
+}
+function chooseCard(side, id) {
+  if (pickSide !== side) return;
+  $('cardPick').hidden = true;
+  applyCard(side, id); send({ t: 'card', side, id });
+  nextPick();
+}
+function drainIncoming() {
+  if (waitingFor === null) return;
+  const i = incoming.findIndex(m => m.side === waitingFor);
+  if (i < 0) return;
+  const [m] = incoming.splice(i, 1); waitingFor = null;
+  applyCard(m.side, m.id); nextPick();
+}
+// 每方自己的第 10、20、30… 個回合開始前選牌
+function maybeTurnPick() {
+  if (!cardsOn || winner !== null || state === 'over') return false;
+  const k = turnsPlayed[turn];
+  if (k > 0 && k % 10 === 0) { beginPick([turn]); return true; }
+  return false;
+}
+function showCardsBtn() { $('mCards').firstChild.textContent = `🃏 強化卡牌：${cardsOn ? '開' : '關'}`; $('mCards').style.opacity = cardsOn ? 1 : 0.65; }
+$('mCards').onclick = () => {
+  cardsOn = !cardsOn; showCardsBtn();
+  try { localStorage.setItem('rc-cards', cardsOn ? '1' : '0'); } catch (e) {}
+};
+showCardsBtn();
+
+// ===== 更新內容 =====
+// 每次改版在最上面加一筆；版本更新後第一次開啟會自動彈出新內容，☰ 選單也可隨時查看
+const CHANGELOG = [
+  { v: '2026-10-18.25', t: ['新增「強化卡牌」：開局與每 10 回合三選一，包含加強火力／射程／血量、象的回復與防空範圍等 22 種強化', '開始畫面可開關強化卡牌；新增本「更新內容」視窗'] },
+  { v: '2026-10-18.24', t: ['炮的最小距離改為 4 格，近距離毫無辦法'] },
+  { v: '2026-10-18.23', t: ['象可攻擊田字對角點（象眼被塞會被擋）', '傌的火箭冷卻縮短為 1 回合'] },
+  { v: '2026-10-18.22', t: ['炮取消冷卻', '象的防空只冷卻一次（對方下 1 次攻擊攔截不了）', '俥只能打直線，射程 4.2 格（比炮短 1 格）'] },
+  { v: '2026-10-18.21', t: ['傌的火箭只能打日字位置，近戰隨時可用 1 心步槍', '炮只能打同一橫線／直線'] },
+  { v: '2026-10-18.20', t: ['象走不了田字、傌走不了日字時，改為可走一步'] },
+  { v: '2026-10-18.19', t: ['傌、炮、俥改為傳統象棋走法（日字蹩馬腳、直線不限距離），傌射程縮為 3 格'] },
+  { v: '2026-10-18.17', t: ['過河的兵（士官長）不能往後退'] },
+];
+function logHTML(list) { return list.map(e => `<h3>${e.v}</h3><ul>${e.t.map(x => `<li>${x}</li>`).join('')}</ul>`).join(''); }
+function showLog(all) {
+  let seen = ''; try { seen = localStorage.getItem('rc-seen') || ''; } catch (e) {}
+  const list = all ? CHANGELOG : CHANGELOG.filter(e => e.v > seen).slice(0, 5);
+  if (!list.length) return;
+  $('logBody').innerHTML = logHTML(list); $('logOv').hidden = false;
+}
+$('logClose').onclick = () => { $('logOv').hidden = true; try { localStorage.setItem('rc-seen', VERSION); } catch (e) {} };
+$('mLog').onclick = () => showLog(true);
+
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.24';
+const VERSION = '2026-10-18.25';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
@@ -1413,27 +1629,36 @@ if (location.protocol.startsWith('http')) {
 // 連線做法：輪到誰，誰的裝置就是「主控」——它算物理、把動作（出發／開火）送給對方播放動畫，
 // 回合結束時送出完整局面快照，對方直接套用，兩台裝置就不會因浮點誤差而越跑越不同步。
 function snapshot() {
-  return { turn, winner, ps: pieces.map(p => [p.x, p.y, p.hp, p.cd, p.T === TYPES.P2 ? 1 : 0, p.hd]) };
+  return { turn, winner, md: mods, tp: turnsPlayed, ps: pieces.map(p => [p.x, p.y, p.hp, p.cd, p.T.id === 'P2' ? 1 : 0, p.hd]) };
 }
 function applySnap(sn) {
+  if (JSON.stringify(sn.md) !== JSON.stringify(mods)) { mods = JSON.parse(JSON.stringify(sn.md)); buildTypes(0); buildTypes(1); }
+  turnsPlayed = sn.tp.slice();
   sn.ps.forEach(([x, y, hp, cd, pr, hd], i) => {
     const p = pieces[i];
     Object.assign(p, { x, y, hp, cd, hd, vx: 0, vy: 0, cdFresh: false });
-    if (pr) p.T = TYPES.P2;
+    p.T = pr ? TT[p.s].P2 : TT[p.s][p.t];
   });
   turn = sn.turn; winner = sn.winner;
 }
 function applyEnd() {
   const sn = pendingEnd; pendingEnd = null;
+  const before = pieces.map(p => p.hp);
   applySnap(sn);
+  let healed = false;   // 對方回合開始時的戰地醫療也播特效
+  pieces.forEach((p, i) => { if (p.hp > before[i] && p.hp > 0) { healFX(p, p.hp - before[i]); healed = true; } });
+  if (healed) SFX.play('heal');
   targets = []; moved = false; sel = null; setSkip(false);
   if (winner !== null) { state = 'over'; SFX.play('win'); }
   else { state = 'aim'; setMsg(myTurn() ? '輪到你了！拉動己方棋子移動，停下後點選要攻擊的敵人。' : '等待對手操作…'); }
   updateHeader();
+  if (winner === null) maybeTurnPick();
 }
 function send(m) { if (online() && conn && conn.open) conn.send(m); }
 function onNet(m) {
   if (m.t === 'reset') { reset(); setMsg('對手重新開始了一局。'); return; }
+  if (m.t === 'cfg') { if (cardsOn !== m.cards) { cardsOn = m.cards; showCardsBtn(); } reset(); return; }   // 連線時以房主的強化卡牌設定為準
+  if (m.t === 'card') { incoming.push(m); drainIncoming(); return; }
   if (m.t === 'launch') {
     const p = pieces[m.i];
     p.vx = m.vx; p.vy = m.vy; p.hd = Math.atan2(m.vy, m.vx); mover = p;
@@ -1477,6 +1702,7 @@ function bindConn(c, side) {
   c.on('open', () => {
     mode = 'online'; mySide = side; pendingEnd = null;
     reset(); $('lobby').hidden = true;
+    if (side === 0) send({ t: 'cfg', cards: cardsOn });
     netStatus('✅ 已連線');
     setMsg(side === 0 ? '對手已加入！你執紅先手，開始吧。' : '已加入房間！你執黑，等待紅方先手…');
   });
@@ -1538,8 +1764,9 @@ document.querySelectorAll('#lobby .lv button').forEach(b => b.onclick = () => {
 });
 $('mRestart').onclick = () => { restart(); $('lobby').hidden = true; };
 
-reset();
+reset(true);
 requestAnimationFrame(loop);
+{ const q = new URLSearchParams(location.search); if (!q.has('bc') && !q.has('nolog')) setTimeout(() => showLog(false), 300); }   // nolog／bc：測試用，不自動彈出更新內容
 {
   const q = new URLSearchParams(location.search);
   if (q.get('bc')) bcConnect(q.get('bc'), +q.get('side') || 0);
