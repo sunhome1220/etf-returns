@@ -42,11 +42,11 @@ const gx = c => M + c * C, gy = r => M + r * C;
 
 const SIDE = [{ name: '紅方', col: '#c0392b' }, { name: '黑方', col: '#1d1d1d' }];
 const TYPES = {
-  K: { n: ['帥', '將'], hp: 10, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 3,   w: '手槍',   palace: true },
-  R: { n: ['俥', '車'], hp: 8,  dist: 7 * C,   range: 2.6 * C, min: 0,     dmg: 2, mass: 2,   w: '機槍' },
-  N: { n: ['傌', '馬'], hp: 6,  dist: 4.5 * C, range: 3.4 * C, min: 0,     dmg: 3, mass: 1.5, w: '火箭' },
-  C: { n: ['炮', '砲'], hp: 5,  dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 3, mass: 1.5, w: '曲射砲', indirect: true },
-  P: { n: ['兵', '卒'], hp: 4,  dist: 3.5 * C, range: 1.8 * C, min: 0,     dmg: 2, mass: 1,   w: '步槍' },
+  K: { n: ['帥', '將'], hp: 5, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 3,   w: '手槍',   palace: true },
+  R: { n: ['俥', '車'], hp: 4, dist: 7 * C,   range: 2.6 * C, min: 0,     dmg: 1, mass: 2,   w: '機槍' },
+  N: { n: ['傌', '馬'], hp: 3, dist: 4.5 * C, range: 3.4 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭' },
+  C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 2, mass: 1.5, w: '曲射砲', indirect: true },
+  P: { n: ['兵', '卒'], hp: 2, dist: 3.5 * C, range: 1.8 * C, min: 0,     dmg: 1, mass: 1,   w: '步槍' },
 };
 const LAYOUT = [['K',4,9],['R',0,9],['R',8,9],['N',1,9],['N',7,9],['C',1,7],['C',7,7],
                 ['P',0,6],['P',2,6],['P',4,6],['P',6,6],['P',8,6]];
@@ -56,6 +56,7 @@ const $ = id => document.getElementById(id);
 const alive = () => pieces.filter(p => p.hp > 0);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const setMsg = s => $('info').textContent = s;
+const hearts = n => '♥'.repeat(n);   // 血量與傷害都以愛心計
 
 function reset() {
   pieces = [];
@@ -153,7 +154,7 @@ function onStop() {
   targets = scan(mover);
   if (targets.some(t => t.ok)) {
     state = 'target'; $('skip').disabled = false;
-    setMsg(`點選黃色準星的敵人開火（${mover.T.n[mover.s]}・${mover.T.w}・威力 ${mover.T.dmg}），或按「不射擊」。`);
+    setMsg(`點選黃色準星的敵人開火（${mover.T.n[mover.s]}・${mover.T.w}・威力 ${hearts(mover.T.dmg)}），或按「不射擊」。`);
   } else {
     state = 'fire'; timer = 0.9;
     setMsg(targets.length ? '射程內的敵人都被擋住或太近，無法開火。' : '射程內沒有敵人。');
@@ -162,9 +163,9 @@ function onStop() {
 function shoot(a, b) {
   b.hp = Math.max(0, b.hp - a.T.dmg);
   fx.push({ k: a.T.indirect ? 'arc' : 'line', x1: a.x, y1: a.y, x2: b.x, y2: b.y, col: a.s ? '#222' : '#e74c3c', t: 0.5, T: 0.5 });
-  fx.push({ k: 'txt', x: b.x, y: b.y - R, txt: '-' + a.T.dmg, t: 1, T: 1 });
+  fx.push({ k: 'txt', x: b.x, y: b.y - R, txt: '-' + hearts(a.T.dmg), t: 1, T: 1 });
   if (b.hp <= 0) fx.push({ k: 'boom', x: b.x, y: b.y, t: 0.6, T: 0.6 });
-  setMsg(`${a.T.n[a.s]} 用${a.T.w}攻擊 ${b.T.n[b.s]}，造成 ${a.T.dmg} 傷害` + (b.hp <= 0 ? '，擊毀！' : `（剩 ${b.hp}）`));
+  setMsg(`${a.T.n[a.s]} 用${a.T.w}攻擊 ${b.T.n[b.s]}，打掉 ${hearts(a.T.dmg)}` + (b.hp <= 0 ? '，擊毀！' : `（剩 ${hearts(b.hp)}）`));
   checkWin();
 }
 function checkWin() {
@@ -220,6 +221,14 @@ $('restart').onclick = reset;
 // ----- 繪圖 -----
 function line(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
 function circle(x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); }
+function heart(x, y, s) {
+  ctx.beginPath(); ctx.moveTo(x, y + s * 0.4);
+  ctx.bezierCurveTo(x - s * 0.15, y + s * 0.25, x - s * 0.5, y + s * 0.05, x - s * 0.5, y - s * 0.15);
+  ctx.bezierCurveTo(x - s * 0.5, y - s * 0.45, x - s * 0.1, y - s * 0.5, x, y - s * 0.2);
+  ctx.bezierCurveTo(x + s * 0.1, y - s * 0.5, x + s * 0.5, y - s * 0.45, x + s * 0.5, y - s * 0.15);
+  ctx.bezierCurveTo(x + s * 0.5, y + s * 0.05, x + s * 0.15, y + s * 0.25, x, y + s * 0.4);
+  ctx.closePath();
+}
 function drawBoard() {
   ctx.fillStyle = '#e8c88a'; ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = '#7fa7b866'; ctx.fillRect(0, gy(4), W, C);              // 河道（泥濘）
@@ -245,9 +254,13 @@ function drawPiece(p) {
   circle(0, 0, R - 4); ctx.lineWidth = 1; ctx.stroke();
   ctx.fillStyle = SIDE[p.s].col; ctx.font = 'bold 20px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(p.T.n[p.s], 0, 1);
-  const k = p.hp / p.T.hp;
-  ctx.fillStyle = '#0007'; ctx.fillRect(-R, R + 4, 2 * R, 5);
-  ctx.fillStyle = k > 0.5 ? '#2ecc71' : k > 0.25 ? '#f1c40f' : '#e74c3c'; ctx.fillRect(-R, R + 4, 2 * R * k, 5);
+  // 血量愛心：實心＝剩餘，空心＝已失去
+  const n = p.T.hp, gap = 9;
+  for (let i = 0; i < n; i++) {
+    heart((i - (n - 1) / 2) * gap, R + 9, 10);
+    ctx.fillStyle = i < p.hp ? '#e8202a' : '#0003'; ctx.fill();
+    ctx.strokeStyle = i < p.hp ? '#fff' : '#0006'; ctx.lineWidth = 1; ctx.stroke();
+  }
   ctx.restore();
 }
 function rangeRing(p, x, y) {
@@ -285,7 +298,7 @@ function draw() {
       ctx.strokeStyle = SIDE[p.s].col; ctx.lineWidth = 2; ctx.beginPath();
       pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke();
       circle(ex, ey, R); ctx.stroke();
-      setMsg(`${p.T.n[p.s]}（${p.T.w}）力道 ${Math.round(pw * 100)}%　射程 ${(p.T.range / C).toFixed(1)} 格　威力 ${p.T.dmg}`);
+      setMsg(`${p.T.n[p.s]}（${p.T.w}）力道 ${Math.round(pw * 100)}%　射程 ${(p.T.range / C).toFixed(1)} 格　威力 ${hearts(p.T.dmg)}`);
     } else setMsg(`${p.T.n[p.s]}：往後拉移動，或直接放開＝原地射擊`);
     rangeRing(p, ex, ey);
     preview = scan(p, ex, ey);
@@ -317,8 +330,8 @@ let last = performance.now();
 function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; draw(); requestAnimationFrame(loop); }
 
 $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動力</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
-  Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}</td><td>${T.w}</td><td>${T.hp}</td><td>${(T.dist / C).toFixed(1)}</td>` +
-    `<td>${T.min ? (T.min / C).toFixed(1) + '～' : ''}${(T.range / C).toFixed(1)}</td><td>${T.dmg}</td>` +
+  Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${(T.dist / C).toFixed(1)}</td>` +
+    `<td>${T.min ? (T.min / C).toFixed(1) + '～' : ''}${(T.range / C).toFixed(1)}</td><td style="color:#e8202a">${hearts(T.dmg)}</td>` +
     `<td>${T.indirect ? '曲射，越過障礙' : T.palace ? '限九宮' : '直射，會被擋'}</td></tr>`).join('');
 reset();
 requestAnimationFrame(loop);
