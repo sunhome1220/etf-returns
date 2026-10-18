@@ -142,10 +142,9 @@ const TYPES = {
   G: { n: ['仕', '士'], hp: 3, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 1.5, w: '手槍', snd: 'pistol', proj: 'bullet', palace: true, guard: true },   // 近距離（相鄰與斜角）手槍 1 心
   E: { n: ['相', '象'], hp: 3, dist: 3 * C,   range: 3 * C,   melee: 1.5 * C, tian: true, min: 0,     dmg: 1, mass: 1.5, w: '手槍',   snd: 'pistol', proj: 'bullet', aa: 2.5 * C, reload: 1 },
   P: { n: ['兵', '卒'], hp: 2, dist: 1 * C,   range: 1.8 * C, min: 0,     dmg: 1, mass: 1,   w: '步槍',   snd: 'rifle',  proj: 'bullet', tag: '（未過河）', locked: true },
-  // 士官長（兵過河後空投補給升官，藍波）：自由移動（每次最多 2 格），血量 2 → 3；機關槍打遠（1 心、3.5 格），
-  // 2.2 格內改用霰彈槍近戰（9 發彈丸呈扇形，越近命中越多，傷害與命中數成正比，全中 2.5 心）
-  P2: { n: ['士官長', '士官長'], face: ['兵', '卒'], hp: 3, dist: 2 * C, range: 3.5 * C, min: 0, dmg: 1, mass: 1, w: '機關槍', snd: 'mg', proj: 'burst', tag: '（過河升官）',
-        near: { w: '霰彈槍', snd: 'shotgun', proj: 'pellets', dmg: 2.5, range: 2.2 * C, pellets: 9, cone: 30 * Math.PI / 180 } },
+  // 士官長（兵過河後空投補給升官）：自由移動（每次最多 2 格），血量 2 → 3，強化霰彈槍 9 發彈丸呈扇形，越近命中越多（傷害與命中數成正比，全中 2.5 心）
+  P2: { n: ['士官長', '士官長'], face: ['兵', '卒'], hp: 3, dist: 2 * C, range: 3 * C, min: 0,    dmg: 2.5, mass: 1,   w: '強化霰彈槍', snd: 'shotgun', proj: 'pellets', tag: '（過河升官）',
+        pellets: 9, cone: 30 * Math.PI / 180 },
 };
 // 傌、俥的主武器冷卻時，改用步槍（炮冷卻時完全不能攻擊）（1 心、射程 1.8 格、直射）
 const RIFLE = { w: '步槍', snd: 'rifle', proj: 'bullet', dmg: 1, range: 1.8 * C, min: 0, indirect: false, splash: 0, reload: 0, backup: false, ortho: false, knightOnly: false, isAlt: true };
@@ -160,7 +159,6 @@ function buildTypes(side) {
     if (T.reload !== undefined) T.reload = Math.max(0, T.reload);
     if (T.min !== undefined) T.min = Math.max(0, T.min);
     delete T.alt; if (T.backup) T.alt = { ...T, ...RIFLE };
-    if (TYPES[k].near) { const N = TYPES[k].near; T.near = { ...T, ...N, id: k, dmg: N.dmg + (m.dmg || 0), range: N.range + (m.range || 0), isNear: true }; delete T.near.near; }   // 近戰武器同樣吃威力、射程加成
     TT[side][k] = T;
   }
 }
@@ -178,7 +176,6 @@ function knightOffset(x, y, b) {
 // 打目標 b 時實際使用的武器：傌——日字位置且火箭已裝填完用火箭，其餘用步槍；炮——冷卻中不能攻擊；俥——冷卻中改用步槍
 function weaponFor(a, b, x = a.x, y = a.y) {
   const T = a.T;
-  if (T.near && Math.hypot(b.x - x, b.y - y) <= T.near.range + 1) return T.near;   // 士官長：近距離用霰彈槍
   if (!T.alt) return T;
   if (T.knight) return !a.cd && knightOffset(x, y, b) ? T : T.alt;
   return a.cd > 0 ? T.alt : T;
@@ -593,8 +590,8 @@ const pelletDmg = (n, T) => n ? Math.max(0.25, quarter(n / T.pellets * T.dmg)) :
 // 回傳 {p, ok, why, est}：在射程內的敵人、能否射擊、預估傷害
 function scan(a, x = a.x, y = a.y, T0 = null) {
   return alive().filter(p => p.s !== a.s).map(p => {
+    const T = T0 || weaponFor(a, p, x, y);
     const d = Math.hypot(p.x - x, p.y - y);
-    const T = T0 ? (T0.near && d <= T0.near.range + 1 ? T0.near : T0) : weaponFor(a, p, x, y);
     if (d > T.range) return null;
     if (T.ortho) { const ox = Math.abs(p.x - x), oy = Math.abs(p.y - y); if (ox > 1 && oy > 1) return null; }   // 炮：只能打橫線／直線
     if (T.knightOnly && !knightOffset(x, y, p)) return null;
@@ -722,7 +719,7 @@ function shoot(a, b) {
 function shootAt(a, b, tx, ty, aim) {
   const T = a.fireT || a.T, dir = Math.atan2(ty - a.y, tx - a.x);
   const mx = a.x + Math.cos(dir) * (R + 8), my = a.y + Math.sin(dir) * (R + 8);
-  a.hd = dir; a.recoil = 1; a.aimA = dir; a.aimT = AIM_T; a.aimNear = !!T.pellets;   // 武器轉向攻擊方向
+  a.hd = dir; a.recoil = 1; a.aimA = dir; a.aimT = AIM_T;   // 武器轉向攻擊方向
   if (T.reload && !T.aa) { a.cd = T.reload; firedPiece = a; }
   SFX.play(T.snd);
   if (b === aim) setMsg(`${T.n[a.s]} 用${T.w}攻擊 ${b.T.n[b.s]}！`);
@@ -740,7 +737,7 @@ function shootAt(a, b, tx, ty, aim) {
     fx.push(intercept(a, b, aim, { ...base, k: 'rocket', t: 0.45, T: 0.45, done: () => impact(a, b) }));
   } else if (T.proj === 'pellets') {   // 霰彈：扇形彈丸同時飛出
     muzzle(mx, my, dir, true); shake = Math.max(shake, 3);
-    const { rays, count } = shotgunSim(a, aim);
+    const { rays, count } = shotgunSim(a, aim, a.x, a.y, T);
     fx.push({ k: 'pellets', x1: a.x, y1: a.y, rays, side: a.s, dir, t: 0.14, T: 0.14, done: () => {
       for (const r of rays) emit(r.x, r.y, 2, { k: 'spark', sp: 120, life: 0.18, size: 2, col: '#ffe066' });
       if (!count.size) { setMsg('霰彈全被擋下，沒有打中敵人。'); timer = Math.max(timer, 0.6); }
@@ -1015,7 +1012,7 @@ function aimRot(p, base = 0) {
 function drawIcon(p) {
   const k = p.T.id === 'P2' ? 'P2' : p.t, dark = '#2b2b2b', acc = SIDE[p.s].col;
   ctx.save(); ctx.translate(0, -R - 11); ctx.scale(1.25, 1.25); ctx.lineJoin = 'round';
-  if (k !== 'K' && k !== 'G' && k !== 'P2') ctx.rotate(aimRot(p, AIM_BASE[k] || 0));   // 攻擊時，有方向性的武器轉向攻擊方向（炮、防空的圖示本身有仰角，要扣掉）
+  if (k !== 'K' && k !== 'G') ctx.rotate(aimRot(p, AIM_BASE[k] || 0));   // 攻擊時，有方向性的武器轉向攻擊方向（炮、防空的圖示本身有仰角，要扣掉）
   const fill = (c, fn) => { ctx.fillStyle = c; ctx.beginPath(); fn(); ctx.fill(); };
   if (k === 'K') {          // 軍官帽
     fill(dark, () => { ctx.moveTo(-9, 1); ctx.quadraticCurveTo(-9, -8, 0, -8); ctx.quadraticCurveTo(9, -8, 9, 1); ctx.closePath(); });
@@ -1048,21 +1045,10 @@ function drawIcon(p) {
   } else if (k === 'P') {   // 步槍
     ctx.fillStyle = dark; ctx.fillRect(-4, -1.2, 15, 2.2);
     fill('#7a4b20', () => { ctx.moveTo(-11, -1.5); ctx.lineTo(-3, -1.5); ctx.lineTo(-3, 1.5); ctx.lineTo(-11, 4); ctx.closePath(); });
-  } else if (k === 'P2') {  // 藍波：紅頭巾＋機關槍（近距離攻擊時換霰彈槍）
-    fill('#e0b080', () => ctx.arc(0, -3.2, 4.6, 0, Math.PI * 2));
-    fill('#1d1d1d', () => { ctx.arc(0, -4, 4.9, Math.PI, 0); ctx.closePath(); });
-    ctx.fillStyle = '#d6202a'; ctx.fillRect(-5, -5.8, 10, 2.2);
-    fill('#d6202a', () => { ctx.moveTo(-4.5, -5.4); ctx.lineTo(-11, -7.6); ctx.lineTo(-9.4, -5); ctx.lineTo(-11.6, -3); ctx.lineTo(-4.5, -3.8); ctx.closePath(); });   // 飄動的頭巾尾
-    ctx.fillStyle = '#4a5a2a'; ctx.fillRect(-6, 1.5, 12, 3);   // 肩膀
-    ctx.save(); ctx.translate(0, 5.5); ctx.rotate(aimRot(p));
-    if (p.aimT > 0 && p.aimNear) {   // 霰彈槍
-      ctx.fillStyle = dark; ctx.fillRect(-3, -2.4, 13, 1.8); ctx.fillRect(-3, -0.4, 13, 1.8);
-      fill('#7a4b20', () => { ctx.moveTo(-10, -2); ctx.lineTo(-2, -2); ctx.lineTo(-2, 1.6); ctx.lineTo(-10, 3.5); ctx.closePath(); });
-    } else {   // 機關槍（彈鏈＋腳架）
-      ctx.fillStyle = dark; ctx.fillRect(-10, -3.2, 9, 5.6); ctx.fillRect(-1, -2.4, 12, 2.2); ctx.fillRect(10, -3.6, 1.5, 3.6);
-      ctx.fillStyle = '#c8a24a'; ctx.fillRect(-5.5, 2.4, 5, 3); ctx.strokeStyle = dark; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(5, -0.2); ctx.lineTo(7.5, 3.2); ctx.moveTo(5, -0.2); ctx.lineTo(3, 3.2); ctx.stroke();
-    }
-    ctx.restore();
+  } else if (k === 'P2') {  // 霰彈槍（雙管＋彈丸）
+    ctx.fillStyle = dark; ctx.fillRect(-4, -2.6, 12, 1.8); ctx.fillRect(-4, -0.4, 12, 1.8);
+    fill('#7a4b20', () => { ctx.moveTo(-11, -2); ctx.lineTo(-3, -2); ctx.lineTo(-3, 1.6); ctx.lineTo(-11, 4); ctx.closePath(); });
+    ctx.fillStyle = '#e0a800'; for (const [x, y] of [[10, -3], [12, -0.5], [10, 2]]) { ctx.beginPath(); ctx.arc(x, y, 1, 0, Math.PI * 2); ctx.fill(); }
   }
   ctx.restore();
 }
@@ -1177,7 +1163,6 @@ function rangeRing(p, x, y) {
   ctx.strokeStyle = '#c0392b88'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke();
   if (p.T.min) { circle(x, y, p.T.min); ctx.strokeStyle = '#5558'; ctx.stroke(); }
   ctx.setLineDash([]);
-  if (p.T.near) { circle(x, y, p.T.near.range); ctx.fillStyle = '#c0392b26'; ctx.fill(); ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 2; ctx.stroke(); }   // 士官長：內圈＝霰彈槍
 }
 function marks(list, T, ghost) {
   for (const t of list) {
@@ -1378,9 +1363,9 @@ let last = performance.now();
 function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; draw(); requestAnimationFrame(loop); }
 
 $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動(格)</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
-  Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}${T.near ? '／' + T.near.w : ''}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${T.knight ? '日字' : T.aa ? '田字' : T.guard ? '斜 1' : T.dist >= 9 * C ? '不限' : (T.dist / C).toFixed(1)}</td>` +
+  Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${T.knight ? '日字' : T.aa ? '田字' : T.guard ? '斜 1' : T.dist >= 9 * C ? '不限' : (T.dist / C).toFixed(1)}</td>` +
     `<td>${T.guard ? '手槍 ' + (T.range / C).toFixed(1) : T.aa ? '手槍 ' + (T.melee / C).toFixed(1) + '／田字／攔截 ' + (T.aa / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${hearts(T.dmg)}</td>` +
-    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；走法同車；只能打同一橫線／直線上、距離 4～5.2 格的目標；射後裝填 ${T.reload} 回合，冷卻期間完全無法攻擊（包括近戰），近距離毫無辦法` : T.guard ? '限九宮斜走一格；手槍可打相鄰與斜角的敵人；帥被直射（非炮、非火箭）時，若仕的某個落點剛好在射線上，會自動走過去擋下並換位' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（攔截後冷卻：對方接下來 ${T.reload} 次攻擊攔截不了）；手槍可打相鄰與田字對角點的敵人；走田字（象眼被塞就過不去；田字走不了時改走一步）` : T.line ? '走法如傳統象棋的車：橫線／直線不限距離（不能穿過棋子）；機槍只能打同一橫線／直線上的目標（比炮短 1 格），直射會被擋' : T.knight ? '走日字（可跳過棋子），蹩馬腳不能走；日字都走不了時改走一步；火箭只能打日字位置、可被相攔截；近戰隨時可用步槍（1 心）' : T.locked ? '只能前進一格' : T.near ? `藍波：機關槍打遠；${(T.near.range / C).toFixed(1)} 格內改用霰彈槍（9 發扇形、越近越痛、全中 ${T.near.dmg} 心）；每次最多走 2 格，可前進或橫移，不能往後退` : '直射，會被擋'}${T.alt && !T.indirect ? `；射後裝填 ${T.reload} 回合（期間改用步槍）` : ''}</td></tr>`).join('');
+    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；走法同車；只能打同一橫線／直線上、距離 4～5.2 格的目標；射後裝填 ${T.reload} 回合，冷卻期間完全無法攻擊（包括近戰），近距離毫無辦法` : T.guard ? '限九宮斜走一格；手槍可打相鄰與斜角的敵人；帥被直射（非炮、非火箭）時，若仕的某個落點剛好在射線上，會自動走過去擋下並換位' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（攔截後冷卻：對方接下來 ${T.reload} 次攻擊攔截不了）；手槍可打相鄰與田字對角點的敵人；走田字（象眼被塞就過不去；田字走不了時改走一步）` : T.line ? '走法如傳統象棋的車：橫線／直線不限距離（不能穿過棋子）；機槍只能打同一橫線／直線上的目標（比炮短 1 格），直射會被擋' : T.knight ? '走日字（可跳過棋子），蹩馬腳不能走；日字都走不了時改走一步；火箭只能打日字位置、可被相攔截；近戰隨時可用步槍（1 心）' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛；每次最多走 2 格，可前進或橫移，不能往後退' : '直射，會被擋'}${T.alt && !T.indirect ? `；射後裝填 ${T.reload} 回合（期間改用步槍）` : ''}</td></tr>`).join('');
 // ===== 電腦對戰（AI） =====
 // 列舉電腦每顆棋子「原地或移到某個可走的點，再攻擊某個目標（或不攻擊）」的所有行動，
 // 用與實際規則相同的函式（scan、shotgunSim、guardBlock、interceptorFor）估算傷害來打分。
@@ -1732,6 +1717,7 @@ showCardsBtn();
 // ===== 更新內容 =====
 // 每次改版在最上面加一筆；版本更新後第一次開啟會自動彈出新內容，☰ 選單也可隨時查看
 const CHANGELOG = [
+  { v: '2026-10-18.37', t: ['士官長改回原本的強化霰彈槍設定（取消藍波與機關槍），並修正霰彈總是「全被擋下」的錯誤（改版後霰彈模擬用錯武器）'] },
   { v: '2026-10-18.36', t: ['士官長變身藍波：頭戴紅頭巾，遠距離用機關槍（1 心、3.5 格），2.2 格內自動換霰彈槍（越近越痛、全中 2.5 心），攻擊時有對應的槍聲與槍口轉向', '炮改成迫擊炮：斜立炮管的新圖示、帶尾翼的砲彈，發射聲改為撞針擊發＋空洞「咚」＋下墜哨音'] },
   { v: '2026-10-18.35', t: ['過河升官的士官長，每次移動距離由 3.5 格降為 2 格（原本走太快）'] },
   { v: '2026-10-18.34', t: ['相／象不能過河（只能待在自己這一半）', '雙方都沒有能過河的棋子（只剩帥、仕、象）時直接和局'] },
@@ -1764,7 +1750,7 @@ $('mLog').onclick = () => showLog(true);
 
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.36';
+const VERSION = '2026-10-18.37';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
