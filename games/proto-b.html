@@ -45,7 +45,7 @@ const TYPES = {
   K: { n: ['帥', '將'], hp: 5, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 3,   w: '手槍',   snd: 'pistol', proj: 'bullet', palace: true },
   R: { n: ['俥', '車'], hp: 4, dist: 7 * C,   range: 2.6 * C, min: 0,     dmg: 1, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst' },
   N: { n: ['傌', '馬'], hp: 3, dist: 4.5 * C, range: 3.4 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket' },
-  C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', indirect: true },
+  C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', indirect: true, reload: 3 },   // 射後需裝填 3 回合
   P: { n: ['兵', '卒'], hp: 2, dist: 1 * C,   range: 1.8 * C, min: 0,     dmg: 1, mass: 1,   w: '步槍',   snd: 'rifle',  proj: 'bullet', tag: '（未過河）', locked: true },
   // 過河兵：自由移動，霰彈槍 9 發彈丸呈扇形，越近命中越多（每 3 發 1 心，最多 3 心）
   P2: { n: ['兵', '卒'], hp: 2, dist: 3.5 * C, range: 2.6 * C, min: 0,    dmg: 3, mass: 1,   w: '霰彈槍', snd: 'shotgun', proj: 'pellets', tag: '（過河）',
@@ -55,6 +55,7 @@ const LAYOUT = [['K',4,9],['R',0,9],['R',8,9],['N',1,9],['N',7,9],['C',1,7],['C'
                 ['P',0,6],['P',2,6],['P',4,6],['P',6,6],['P',8,6]];
 
 let pieces, turn, state, drag, mover, timer, fx, winner, targets;
+let moved = false, firedPiece = null;   // moved：本回合是否已移動（未移動才能取消）
 const $ = id => document.getElementById(id);
 const alive = () => pieces.filter(p => p.hp > 0);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -169,9 +170,9 @@ function reset() {
   for (let s = 0; s < 2; s++)
     for (const [t, c, r] of LAYOUT) {
       const T = TYPES[t];
-      pieces.push({ s, t, T, x: gx(c), y: gy(s ? 9 - r : r), vx: 0, vy: 0, hp: T.hp, hd: s ? Math.PI / 2 : -Math.PI / 2, flash: 0, recoil: 0 });
+      pieces.push({ s, t, T, x: gx(c), y: gy(s ? 9 - r : r), vx: 0, vy: 0, hp: T.hp, hd: s ? Math.PI / 2 : -Math.PI / 2, flash: 0, recoil: 0, cd: 0 });
     }
-  turn = 0; state = 'aim'; drag = null; fx = []; winner = null; targets = []; parts = []; decals = []; shake = 0;
+  turn = 0; state = 'aim'; drag = null; fx = []; moved = false; firedPiece = null; winner = null; targets = []; parts = []; decals = []; shake = 0;
   updateHeader(); $('skip').disabled = true;
   setMsg('拉動己方棋子移動（輕點＝原地不動），停下後點選要攻擊的敵人。');
 }
@@ -287,6 +288,7 @@ function scan(a, x = a.x, y = a.y, T = a.T) {
   return alive().filter(p => p.s !== a.s).map(p => {
     const d = Math.hypot(p.x - x, p.y - y);
     if (d > T.range) return null;
+    if (a.cd > 0) return { p, ok: false, why: `裝填中 ${a.cd}` };
     if (d < T.min) return { p, ok: false, why: '太近' };
     if (!T.indirect && blocked(a, p, x, y)) return { p, ok: false, why: '被擋' };
     return { p, ok: true, est: T.pellets ? pelletDmg(shotgunSim(a, p, x, y, T).count.get(p) || 0) : T.dmg };
@@ -304,23 +306,38 @@ function promoteCrossed() {
 }
 
 // ----- 回合流程 -----
+const reloadMsg = p => `${p.T.n[p.s]}裝填中，還要 ${p.cd} 回合才能再射擊。`;
+function setSkip(on) {
+  $('skip').disabled = !on;
+  $('skip').textContent = moved ? '不射擊' : '取消';
+}
 function onStop() {
   promoteCrossed();
   if (mover.hp <= 0) { state = 'fire'; timer = 0.6; return; }
   targets = scan(mover);
   if (targets.some(t => t.ok)) {
-    state = 'target'; $('skip').disabled = false;
-    setMsg(`點選黃色準星的敵人開火（${mover.T.n[mover.s]}・${mover.T.w}・準星旁為預估傷害），或按「不射擊」。`);
+    state = 'target'; setSkip(true);
+    setMsg(`點選黃色準星的敵人開火（${mover.T.n[mover.s]}・${mover.T.w}・準星旁為預估傷害），` +
+           (moved ? '或按「不射擊」。' : '或按「取消」／點其他己方棋子改操作。'));
+  } else if (!moved) {   // 原地選取但沒東西可打：不浪費回合，回到選棋
+    const p = mover;
+    cancelSelect((p.cd > 0 && targets.length ? reloadMsg(p) : '射程內沒有可攻擊的敵人，') + '請拉動移動或換別的棋子。');
   } else {
     state = 'fire'; timer = 0.9;
-    setMsg(targets.length ? '射程內的敵人都被擋住或太近，無法開火。' : '射程內沒有敵人。');
+    setMsg(mover.cd > 0 && targets.length ? reloadMsg(mover)
+           : targets.length ? '射程內的敵人都被擋住或太近，無法開火。' : '射程內沒有敵人。');
   }
+}
+// 取消原地選取，回到選棋
+function cancelSelect(msg = '已取消，請重新選擇棋子。') {
+  state = 'aim'; mover = null; targets = []; setSkip(false); setMsg(msg);
 }
 // 開火：車頭轉向目標、槍口火光、彈體飛行，命中時才扣血（impact）
 function shoot(a, b) {
   const T = a.T, dir = Math.atan2(b.y - a.y, b.x - a.x);
   const mx = a.x + Math.cos(dir) * (R + 8), my = a.y + Math.sin(dir) * (R + 8);
   a.hd = dir; a.recoil = 1;
+  if (T.reload) { a.cd = T.reload; firedPiece = a; }
   SFX.play(T.snd);
   setMsg(`${T.n[a.s]} 用${T.w}攻擊 ${b.T.n[b.s]}！`);
   const base = { x1: mx, y1: my, x2: b.x, y2: b.y, dir, side: a.s };
@@ -369,7 +386,10 @@ function checkWin() {
 }
 function endTurn() {
   if (winner !== null) { state = 'over'; SFX.play('win'); return; }
-  turn = 1 - turn; state = 'aim'; targets = []; updateHeader();
+  // 裝填倒數：每結束一個自己的回合減 1（開火那回合不算）
+  for (const p of pieces) if (p.s === turn && p.cd > 0 && p !== firedPiece) p.cd--;
+  firedPiece = null;
+  turn = 1 - turn; state = 'aim'; targets = []; moved = false; setSkip(false); updateHeader();
 }
 function update(dt) {
   if (state === 'moving') {
@@ -412,8 +432,9 @@ cv.addEventListener('pointerdown', e => {
   if (state === 'over') { reset(); return; }
   if (state === 'target') {
     const t = targets.find(t => t.ok && Math.hypot(t.p.x - m.x, t.p.y - m.y) < R + 8);
-    if (t) { targets = []; $('skip').disabled = true; state = 'fire'; timer = 0.5; shoot(mover, t.p); }
-    return;
+    if (t) { targets = []; setSkip(false); state = 'fire'; timer = 0.5; shoot(mover, t.p); return; }
+    if (moved) return;
+    cancelSelect();          // 還沒移動：點別處＝取消；點己方棋子＝直接改操作它
   }
   if (state !== 'aim') return;
   const p = alive().find(p => p.s === turn && Math.hypot(p.x - m.x, p.y - m.y) < R + 6);
@@ -432,7 +453,8 @@ cv.addEventListener('pointerup', () => {
   if (!drag) return;
   const { len, pw, vx, vy } = pullInfo(), p = drag.p;
   drag = null; mover = p;
-  if (len < 10) { onStop(); return; }          // 輕點：原地不動直接進入瞄準
+  if (len < 10) { moved = false; onStop(); return; }   // 輕點（或拉回棋子上放開）：原地瞄準，可取消
+  moved = true;
   p.vx = vx; p.vy = vy; p.hd = Math.atan2(vy, vx);
   SFX.play('launch', pw);
   emit(p.x - Math.cos(p.hd) * R, p.y - Math.sin(p.hd) * R, 6, { k: 'smoke', sp: 70, life: 0.6, size: 8, col: '#b89a6a', dir: p.hd + Math.PI, spread: 1.4 });
@@ -440,8 +462,16 @@ cv.addEventListener('pointerup', () => {
 });
 $('skip').onclick = () => {
   if (state !== 'target') return;
-  targets = []; $('skip').disabled = true; state = 'fire'; timer = 0.2;
+  if (!moved) { cancelSelect(); return; }
+  targets = []; setSkip(false); state = 'fire'; timer = 0.2;
 };
+// Esc：取消拉動中或原地選取
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (drag) { drag = null; setMsg('已取消拉動。'); }
+  else if (state === 'target' && !moved) cancelSelect();
+});
+cv.addEventListener('pointercancel', () => { drag = null; });
 $('restart').onclick = () => { SFX.init(); reset(); };
 $('mute').textContent = SFX.muted ? '🔇' : '🔊';
 $('mute').onclick = () => { SFX.init(); $('mute').textContent = SFX.toggle() ? '🔇' : '🔊'; };
@@ -486,6 +516,13 @@ function drawPiece(p) {
   ctx.fillStyle = SIDE[p.s].col; ctx.font = 'bold 20px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(p.T.n[p.s], 0, 1);
   if (p.T === TYPES.P2) { circle(0, 0, R + 2); ctx.strokeStyle = '#e0a800'; ctx.lineWidth = 2; ctx.stroke(); }
+  if (p.cd > 0) {   // 裝填中：右上角倒數，外圈為進度
+    const bx = R - 3, by = -R + 3, k = 1 - p.cd / p.T.reload;
+    circle(bx, by, 9); ctx.fillStyle = '#333'; ctx.fill();
+    ctx.beginPath(); ctx.arc(bx, by, 9, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
+    ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.fillText(p.cd, bx, by + 1);
+  }
   if (p.flash) { circle(0, 0, R); ctx.fillStyle = `rgba(255,255,255,${p.flash * 2})`; ctx.fill(); }
   // 血量愛心：實心＝剩餘，空心＝已失去
   const n = p.T.hp, gap = 9;
@@ -603,12 +640,16 @@ function draw() {
       if (p.T.locked) setMsg(`${p.T.n[p.s]}未過河：只能往前走一格` + (crossed(p.s, ey) ? '（這步過河，升級霰彈槍！）' : ''));
       else setMsg(`${p.T.n[p.s]}（${p.T.w}）力道 ${Math.round(pw * 100)}%　射程 ${(p.T.range / C).toFixed(1)} 格　` +
                   (p.T.pellets ? '越近越痛（最多 ' + hearts(p.T.dmg) + '）' : '威力 ' + hearts(p.T.dmg)));
-    } else setMsg(`${p.T.n[p.s]}：往後拉移動` + (p.T.locked ? '（未過河，只能前進一格）' : '') + '，或直接放開＝原地射擊');
+    } else setMsg(`${p.T.n[p.s]}：往後拉移動` + (p.T.locked ? '（未過河，只能前進一格）' : '') + '；拉回棋子上放開＝原地瞄準（可取消），Esc 取消' +
+                  (p.cd > 0 ? `　⚠ 裝填中還要 ${p.cd} 回合` : ''));
     const T = p.T.locked && crossed(p.s, ey) ? TYPES.P2 : p.T;   // 這步會過河就用霰彈槍預覽
     rangeRing({ T }, ex, ey);
     preview = scan(p, ex, ey, T);
   }
-  if (state === 'target') rangeRing(mover, mover.x, mover.y);
+  if (state === 'target') {
+    rangeRing(mover, mover.x, mover.y);
+    if (!moved) { circle(mover.x, mover.y, R + 6); ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 3; ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]); }
+  }
   for (const p of alive()) drawPiece(p);
   marks(state === 'target' ? targets : preview);
   for (const f of fx) if (f.k !== 'txt') drawProj(f);
@@ -634,7 +675,7 @@ function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; dr
 $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動力</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
   Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${(T.dist / C).toFixed(1)}</td>` +
     `<td>${T.min ? (T.min / C).toFixed(1) + '～' : ''}${(T.range / C).toFixed(1)}</td><td style="color:#e8202a">${hearts(T.dmg)}</td>` +
-    `<td>${T.indirect ? '曲射，越過障礙' : T.palace ? '限九宮' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛' : '直射，會被擋'}</td></tr>`).join('');
+    `<td>${T.indirect ? `曲射，越過障礙；射後裝填 ${T.reload} 回合` : T.palace ? '限九宮' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛' : '直射，會被擋'}</td></tr>`).join('');
 reset();
 requestAnimationFrame(loop);
 </script>
