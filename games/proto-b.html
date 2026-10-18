@@ -134,7 +134,7 @@ const gx = c => M + c * C, gy = r => M + r * C;
 const SIDE = [{ name: '紅方', col: '#c0392b' }, { name: '黑方', col: '#1d1d1d' }];
 const TYPES = {
   K: { n: ['帥', '將'], hp: 3, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 3,   w: '手槍',   snd: 'pistol', proj: 'bullet', palace: true },
-  R: { n: ['俥', '車'], hp: 4, dist: 10 * C,   range: 4.2 * C, min: 0,     dmg: 1.5, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst', line: true, ortho: true },   // 只能沿橫線／直線移動；橫線、直線射程 5 格，斜對角只有 3 格
+  R: { n: ['俥', '車'], hp: 4, dist: 10 * C,   range: 4.2 * C, min: 0,     dmg: 2, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst', reload: 1, backup: true, line: true, ortho: true },   // 只能沿橫線／直線移動；橫線、直線射程 5 格，斜對角只有 3 格
   N: { n: ['傌', '馬'], hp: 3, dist: 0, knight: true, range: 3 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket', reload: 1, backup: true, knightOnly: true },   // 火箭只能打「日」字位置；近戰（任何時候）用 1 心步槍   // 射後需裝填 2 回合（期間改用步槍）
   C: { n: ['炮', '砲'], hp: 3, dist: 10 * C, range: 5.2 * C, min: 4 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', reload: 1, backup: true, indirect: true, moveLine: true, ortho: true, splash: 1.5 * C },   // 只能打同一橫線／直線上的目標；   // 只能沿橫線／直線移動；射後需裝填 1 回合（期間改用步槍）；上下左右相鄰受 1/2 傷害、斜角受 1/4（無條件捨去到 ¼ 心）
   // 相／象：防空＋近戰；自動攔截落點在 2.5 格內的火箭／砲彈（冷卻 2 回合，不影響近戰）；近戰 1 心、射程 1.5 格；只能走田字（象眼被塞就過不去）
@@ -717,7 +717,7 @@ function shoot(a, b) {
 function shootAt(a, b, tx, ty, aim) {
   const T = a.fireT || a.T, dir = Math.atan2(ty - a.y, tx - a.x);
   const mx = a.x + Math.cos(dir) * (R + 8), my = a.y + Math.sin(dir) * (R + 8);
-  a.hd = dir; a.recoil = 1;
+  a.hd = dir; a.recoil = 1; a.aimA = dir; a.aimT = AIM_T;   // 武器轉向攻擊方向
   if (T.reload && !T.aa) { a.cd = T.reload; firedPiece = a; }
   SFX.play(T.snd);
   if (b === aim) setMsg(`${T.n[a.s]} 用${T.w}攻擊 ${b.T.n[b.s]}！`);
@@ -749,6 +749,7 @@ function shootAt(a, b, tx, ty, aim) {
   }
 }
 // 防空攔截：落點附近有對方冷卻完畢的相，就發射攔截飛彈，在空中把火箭／砲彈打爆（沒有傷害）
+const AIM_T = 1.1;   // 武器朝向攻擊方向的持續秒數
 const STOP_AT = 0.65;   // 飛到 65% 時被攔下
 function intercept(a, b, aim, f) {
   const e = interceptorFor(1 - a.s, aim.x, aim.y);   // 以原本瞄準的目標判定範圍（士衝出來擋時仍算帥的位置）
@@ -760,7 +761,7 @@ function intercept(a, b, aim, f) {
     const j = i ? rnd(5) : 0, px = -Math.sin(dir) * j, py = Math.cos(dir) * j;
     fx.push({ k: 'tracer', x1: e.x + Math.cos(dir) * (R + 6), y1: e.y + Math.sin(dir) * (R + 6), x2: ix + px, y2: iy + py, dir, side: e.s,
               t: flight * 0.4, T: flight * 0.4, delay: flight * 0.3 + i * 0.045 + 0.001,
-              start: () => { if (i === 0) SFX.play('aa'); muzzle(e.x, e.y, dir, false); e.recoil = 1; } });
+              start: () => { if (i === 0) SFX.play('aa'); muzzle(e.x, e.y, dir, false); e.recoil = 1; e.aimA = dir; e.aimT = AIM_T; } });
   }
   f.stopAt = STOP_AT;
   f.done = () => {   // 空中爆炸
@@ -838,7 +839,7 @@ function update(dt) {
     if (timer <= 0 && !fx.some(f => f.done)) endTurn();   // 等所有彈體落地
   }
   for (const p of pieces) {
-    p.flash = Math.max(0, p.flash - dt); p.recoil = Math.max(0, p.recoil - dt * 6);
+    p.flash = Math.max(0, p.flash - dt); p.recoil = Math.max(0, p.recoil - dt * 6); if (p.aimT > 0) p.aimT = Math.max(0, p.aimT - dt);
     if (p.lock) { p.lock.t -= dt; if (p.lock.t <= 0) p.lock = null; }
     if (p.sl) {   // 仕滑到擋子彈的位置（0.1 秒）
       const d = p.sl; d.k = Math.min(1, d.k + dt / 0.1);
@@ -998,6 +999,11 @@ function drawBoard() {
 function drawIcon(p) {
   const k = p.T.id === 'P2' ? 'P2' : p.t, dark = '#2b2b2b', acc = SIDE[p.s].col;
   ctx.save(); ctx.translate(0, -R - 11); ctx.scale(1.25, 1.25); ctx.lineJoin = 'round';
+  if (p.aimT > 0 && k !== 'K' && k !== 'G') {   // 攻擊時，有方向性的武器轉向攻擊方向（炮、防空的圖示本身有仰角，要扣掉）
+    const aw = Math.max(0, Math.min(1, (AIM_T - p.aimT) / 0.08, p.aimT / 0.3));
+    const d = Math.atan2(Math.sin(p.aimA - textAng(p.s)), Math.cos(p.aimA - textAng(p.s)));
+    ctx.rotate(aw * (d - (k === 'C' ? -0.55 : k === 'E' ? -0.8 : 0)));
+  }
   const fill = (c, fn) => { ctx.fillStyle = c; ctx.beginPath(); fn(); ctx.fill(); };
   if (k === 'K') {          // 軍官帽
     fill(dark, () => { ctx.moveTo(-9, 1); ctx.quadraticCurveTo(-9, -8, 0, -8); ctx.quadraticCurveTo(9, -8, 9, 1); ctx.closePath(); });
@@ -1693,6 +1699,7 @@ showCardsBtn();
 // ===== 更新內容 =====
 // 每次改版在最上面加一筆；版本更新後第一次開啟會自動彈出新內容，☰ 選單也可隨時查看
 const CHANGELOG = [
+  { v: '2026-10-18.32', t: ['俥的機槍威力改回 2 心，但射擊後要冷卻 1 回合（期間改用 1 心步槍）', '各棋攻擊時，有方向性的武器（機槍、火箭筒、火炮、步槍、霰彈槍、防空砲）會轉向攻擊方向'] },
   { v: '2026-10-18.31', t: ['相的防空改成防空砲樣式：一串橘黃曳光彈射向來襲的火箭／砲彈，在空中炸成黑色高射砲煙團與破片（不再是一發飛彈）'] },
   { v: '2026-10-18.30', t: ['冷卻顯示更清楚：冷卻中的棋子整顆變暗，右上角出現橘色倒數徽章（數字＝還要幾回合／幾次，黃色外圈＝進度）；冷卻完畢的炮、傌、象右上角亮綠燈表示可用'] },
   { v: '2026-10-18.29', t: ['仕新增近距離攻擊：手槍 1 心，可打相鄰與斜角的敵人'] },
@@ -1720,7 +1727,7 @@ $('mLog').onclick = () => showLog(true);
 
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.31';
+const VERSION = '2026-10-18.32';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
