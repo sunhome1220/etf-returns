@@ -20,6 +20,10 @@
   button { background:#e8c88a; color:#2b2118; border:0; border-radius:4px; padding:6px 12px; font:inherit; cursor:pointer; }
   button:disabled { opacity:.35; cursor:default; }
   #fire { background:#e74c3c; color:#fff; font-weight:700; }
+  #quick.on { background:#f1c40f; font-weight:700; }
+  #quick:not(.on) { opacity:.6; }
+  header, header * { white-space:nowrap; }
+  header span button { padding:6px 8px; font-size:14px; }
   table { margin:10px 0 20px; border-collapse:collapse; font-size:13px; }
   td, th { padding:3px 8px; border-bottom:1px solid #3d4f44; text-align:center; }
 </style>
@@ -28,9 +32,9 @@
 <header>
   <a href="index.html">← 選單</a>
   <span id="turn"></span>
-  <span><button id="mute" title="音效開關">🔊</button> <button id="restart">重新開始</button></span>
+  <span><button id="quick" title="快速模式：放開立即出發，不需確認">⚡快速</button> <button id="mute" title="音效開關">🔊</button> <button id="restart">重來</button></span>
 </header>
-<div id="bar"><div id="info"></div><button id="fire" hidden>發射</button><button id="skip" disabled>不射擊</button></div>
+<div id="bar"><div id="info"></div><button id="fire" hidden>出發</button><button id="skip" disabled>不射擊</button></div>
 <canvas id="cv"></canvas>
 <table id="legend"></table>
 <script>
@@ -449,7 +453,7 @@ cv.addEventListener('pointerdown', e => {
   }
   const p = alive().find(p => p.s === turn && Math.hypot(p.x - m.x, p.y - m.y) < R + 6);
   if (state === 'armed') {
-    if (p === drag.p) {      // 再按同一顆：輕點＝發射，拖曳＝重新調整
+    if (p === drag.p) {      // 再按同一顆：輕點＝出發，拖曳＝重新調整
       drag.prev = { sx: drag.sx, sy: drag.sy, x: drag.x, y: drag.y };
       Object.assign(drag, { sx: m.x, sy: m.y, x: m.x, y: m.y, notch: 0 });
       dragging = true; cv.setPointerCapture(e.pointerId);
@@ -479,10 +483,11 @@ cv.addEventListener('pointerup', () => {
   if (len < TAP) {           // 輕點（或拉回原處放開）：原地瞄準，可取消
     mover = drag.p; drag = null; moved = false; onStop(); return;
   }
-  state = 'armed'; setSkip(true);   // 放開後先不發射，等確認
+  if (quick) { launch(); return; }  // 快速模式：放開立即出發
+  state = 'armed'; setSkip(true);   // 一般模式：放開後先不動，等確認
   setMsg(armedMsg());
 });
-const armedMsg = () => '路線已設定：按「發射」或再點一下棋子發射；拖曳棋子可重新調整；點空白處／「取消」／Esc 取消。';
+const armedMsg = () => '路線已設定：按「出發」或再點一下棋子出發；拖曳棋子可重新調整；點空白處／「取消」／Esc 取消。';
 function cancelArmed(msg = '已取消，請重新選擇棋子。') {
   drag = null; dragging = false; state = 'aim'; setSkip(false); setMsg(msg);
 }
@@ -517,6 +522,17 @@ cv.addEventListener('pointercancel', () => {
 $('restart').onclick = () => { SFX.init(); reset(); };
 $('mute').textContent = SFX.muted ? '🔇' : '🔊';
 $('mute').onclick = () => { SFX.init(); $('mute').textContent = SFX.toggle() ? '🔇' : '🔊'; };
+// 快速模式：放開立即出發（不需確認），記在瀏覽器
+let quick = false;
+try { quick = localStorage.getItem('rc-quick') === '1'; } catch (e) {}
+function showQuick() { $('quick').classList.toggle('on', quick); $('quick').textContent = quick ? '⚡快速✓' : '⚡快速'; }
+showQuick();
+$('quick').onclick = () => {
+  quick = !quick; showQuick();
+  try { localStorage.setItem('rc-quick', quick ? '1' : '0'); } catch (e) {}
+  if (quick && state === 'armed') setMsg(armedMsg());
+  else setMsg(quick ? '⚡快速模式：放開立即出發。' : '一般模式：放開後按「出發」才會移動。');
+};
 
 // ----- 繪圖 -----
 function line(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
@@ -684,7 +700,7 @@ function draw() {
       else if (p.T.locked) setMsg(`${p.T.n[p.s]}未過河：只能往前走一格` + (crossed(p.s, ey) ? '（這步過河，升級霰彈槍！）' : ''));
       else setMsg(`${p.T.n[p.s]}（${p.T.w}）力道 ${Math.round(pw * 100)}%　射程 ${(p.T.range / C).toFixed(1)} 格　` +
                   (p.T.pellets ? '越近越痛（最多 ' + hearts(p.T.dmg) + '）' : '威力 ' + hearts(p.T.dmg)));
-    } else if (dragging) setMsg(`${p.T.n[p.s]}：往後拉移動` + (p.T.locked ? '（未過河，只能前進一格）' : '') + '；放開後還要確認才會發射，拉回原處放開＝原地瞄準' +
+    } else if (dragging) setMsg(`${p.T.n[p.s]}：往後拉移動` + (p.T.locked ? '（未過河，只能前進一格）' : '') + (quick ? '；⚡快速模式：放開立即出發' : '；放開後還要確認才會出發') + '，拉回原處放開＝原地瞄準' +
                   (p.cd > 0 ? `　⚠ 裝填中還要 ${p.cd} 回合` : ''));
     const T = p.T.locked && crossed(p.s, ey) ? TYPES.P2 : p.T;   // 這步會過河就用霰彈槍預覽
     rangeRing({ T }, ex, ey);
