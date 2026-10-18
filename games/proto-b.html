@@ -138,8 +138,8 @@ const TYPES = {
   N: { n: ['傌', '馬'], hp: 3, dist: 0, knight: true, range: 3 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket', reload: 1, backup: true, knightOnly: true },   // 火箭只能打「日」字位置；近戰（任何時候）用 1 心步槍   // 射後需裝填 2 回合（期間改用步槍）
   C: { n: ['炮', '砲'], hp: 3, dist: 10 * C, range: 5.2 * C, min: 4 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', reload: 1, backup: true, indirect: true, moveLine: true, ortho: true, splash: 1.5 * C },   // 只能打同一橫線／直線上的目標；   // 只能沿橫線／直線移動；射後需裝填 1 回合（期間改用步槍）；上下左右相鄰受 1/2 傷害、斜角受 1/4（無條件捨去到 ¼ 心）
   // 相／象：防空＋近戰；自動攔截落點在 2.5 格內的火箭／砲彈（冷卻 2 回合，不影響近戰）；近戰 1 心、射程 1.5 格；只能走田字（象眼被塞就過不去）
-  // 仕／士：護衛，不能攻擊；限九宮斜走一格；帥被直接攻擊時，相鄰的士衝出來替帥擋下
-  G: { n: ['仕', '士'], hp: 3, dist: 1.5 * C, range: 0,       min: 0,     dmg: 0, mass: 1.5, w: '無（護衛）', palace: true, guard: true },
+  // 仕／士：護衛，近距離手槍；限九宮斜走一格；帥被直接攻擊時，相鄰的士衝出來替帥擋下
+  G: { n: ['仕', '士'], hp: 3, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 1.5, w: '手槍', snd: 'pistol', proj: 'bullet', palace: true, guard: true },   // 近距離（相鄰與斜角）手槍 1 心
   E: { n: ['相', '象'], hp: 3, dist: 3 * C,   range: 3 * C,   melee: 1.5 * C, tian: true, min: 0,     dmg: 1, mass: 1.5, w: '手槍',   snd: 'pistol', proj: 'bullet', aa: 2.5 * C, reload: 1 },
   P: { n: ['兵', '卒'], hp: 2, dist: 1 * C,   range: 1.8 * C, min: 0,     dmg: 1, mass: 1,   w: '步槍',   snd: 'rifle',  proj: 'bullet', tag: '（未過河）', locked: true },
   // 士官長（兵過河後空投補給升官）：自由移動，血量 2 → 3，強化霰彈槍 9 發彈丸呈扇形，越近命中越多（傷害與命中數成正比，全中 2.5 心）
@@ -650,13 +650,13 @@ function onStop() {
            (moved ? '不滿意可按「取消移動」換別的棋，或按「不射擊」結束回合。' : '或按「取消」／點其他己方棋子改操作。'));
   } else if (moved && manual && !quick) {   // 沒有目標也停下來：看過攻擊範圍後可取消移動
     state = 'target'; setSkip(true);
-    setMsg(`圓圈是${mover.T.n[mover.s]}的攻擊範圍，` + (mover.T.aa && !targets.length ? '範圍內沒有敵人，藍圈內的火箭和砲彈會被攔截。' : mover.T.guard ? '仕不會攻擊，帥被直射時會走到射線上擋子彈。' : mover.cd > 0 && targets.length ? reloadMsg(mover) + '' : '範圍內沒有可攻擊的敵人。') + '可按「取消移動」換別的棋，或按「結束回合」。');
+    setMsg(`圓圈是${mover.T.n[mover.s]}的攻擊範圍，` + (mover.T.aa && !targets.length ? '範圍內沒有敵人，藍圈內的火箭和砲彈會被攔截。' : mover.T.guard ? '範圍內沒有敵人；帥被直射時仕會走到射線上擋子彈。' : mover.cd > 0 && targets.length ? reloadMsg(mover) + '' : '範圍內沒有可攻擊的敵人。') + '可按「取消移動」換別的棋，或按「結束回合」。');
   } else if (!moved) {   // 原地選取但沒東西可打：不浪費回合，回到選棋
     const p = mover;
-    cancelSelect((p.T.aa ? `${p.T.n[p.s]}射程內沒有敵人（相鄰或田字對角點），負責攔截飛來的火箭和砲彈。` : p.T.guard ? `${p.T.n[p.s]}不會攻擊，帥被直射時會走到射線上擋子彈。` : p.cd > 0 && targets.length ? reloadMsg(p) : '射程內沒有可攻擊的敵人，') + '請選擇移動位置或換別的棋子。');
+    cancelSelect((p.T.aa ? `${p.T.n[p.s]}射程內沒有敵人（相鄰或田字對角點），負責攔截飛來的火箭和砲彈。` : p.T.guard ? `${p.T.n[p.s]}近距離（相鄰與斜角）沒有敵人；帥被直射時會走到射線上擋子彈。` : p.cd > 0 && targets.length ? reloadMsg(p) : '射程內沒有可攻擊的敵人，') + '請選擇移動位置或換別的棋子。');
   } else {
     state = 'fire'; timer = 0.9;
-    setMsg(mover.T.aa && !targets.length ? `${mover.T.n[mover.s]}就定位，藍圈內的火箭和砲彈會被攔截。` : mover.T.guard ? `${mover.T.n[mover.s]}就定位。` : mover.cd > 0 && targets.length ? reloadMsg(mover)
+    setMsg(mover.T.aa && !targets.length ? `${mover.T.n[mover.s]}就定位，藍圈內的火箭和砲彈會被攔截。` : mover.T.guard ? `${mover.T.n[mover.s]}就定位，近距離沒有敵人。` : mover.cd > 0 && targets.length ? reloadMsg(mover)
            : targets.length ? '射程內的敵人都被擋住或太近，無法開火。' : '射程內沒有敵人。');
   }
 }
@@ -882,7 +882,7 @@ function selectPiece(p) {
   setMsg(!sel.moves.length && !atk ? `${nm}沒有可走的位置，也沒有可攻擊的目標，請換別的棋子。`
     : `${nm}：` + (sel.moves.length ? '點綠點移動' + (oneStep(p) ? '（每次只能走一格）' : p.T.aa ? (fallbackMode(p, sel.moves) ? '（田字走不了，改走一步）' : '（走田字，象眼被塞就過不去）') : p.T.knight ? (fallbackMode(p, sel.moves) ? '（日字走不了，改走一步）' : '（走日字，蹩馬腳不能走）') : '') : '沒有可走的位置') +
       (atk ? '，或點黃色準星原地攻擊' : '') + '；點別處取消。' +
-      (p.T.aa ? (p.cd > 0 ? `（防空冷卻中，對方接下來 ${p.cd} 次攻擊攔截不了；近戰不受影響）` : '（藍圈內的火箭和砲彈會被自動攔截）') : p.T.knight ? (p.cd > 0 ? `（火箭裝填中還要 ${p.cd} 回合；近戰可用步槍）` : '（火箭只能打日字位置；近戰用步槍 1 心）') : p.T.guard ? '（九宮內斜走一格；帥被直射時，若有落點在射線上會自動走去擋）' : p.cd > 0 ? `（裝填中還要 ${p.cd} 回合）` : ''));
+      (p.T.aa ? (p.cd > 0 ? `（防空冷卻中，對方接下來 ${p.cd} 次攻擊攔截不了；近戰不受影響）` : '（藍圈內的火箭和砲彈會被自動攔截）') : p.T.knight ? (p.cd > 0 ? `（火箭裝填中還要 ${p.cd} 回合；近戰可用步槍）` : '（火箭只能打日字位置；近戰用步槍 1 心）') : p.T.guard ? '（九宮內斜走一格；近距離手槍 1 心；帥被直射時，若有落點在射線上會自動走去擋）' : p.cd > 0 ? `（裝填中還要 ${p.cd} 回合）` : ''));
 }
 function cancelSel(msg = '已取消，請重新選擇棋子。') {
   sel = null; state = 'aim'; setSkip(false); setMsg(msg);
@@ -1331,8 +1331,8 @@ function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; dr
 
 $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動(格)</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
   Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${T.knight ? '日字' : T.aa ? '田字' : T.guard ? '斜 1' : T.dist >= 9 * C ? '不限' : (T.dist / C).toFixed(1)}</td>` +
-    `<td>${T.guard ? '護衛' : T.aa ? '手槍 ' + (T.melee / C).toFixed(1) + '／田字／攔截 ' + (T.aa / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${T.guard ? '-' : hearts(T.dmg)}</td>` +
-    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；走法同車；只能打同一橫線／直線上、距離 4～5.2 格的目標；射後裝填 ${T.reload} 回合（期間改用步槍），近距離毫無辦法` : T.guard ? '限九宮斜走一格；帥被直射（非炮、非火箭）時，若仕的某個落點剛好在射線上，會自動走過去擋下並換位' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（攔截後冷卻：對方接下來 ${T.reload} 次攻擊攔截不了）；手槍可打相鄰與田字對角點的敵人；走田字（象眼被塞就過不去；田字走不了時改走一步）` : T.line ? '走法如傳統象棋的車：橫線／直線不限距離（不能穿過棋子）；機槍只能打同一橫線／直線上的目標（比炮短 1 格），直射會被擋' : T.knight ? '走日字（可跳過棋子），蹩馬腳不能走；日字都走不了時改走一步；火箭只能打日字位置、可被相攔截；近戰隨時可用步槍（1 心）' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛；可前進或橫移，不能往後退' : '直射，會被擋'}${T.alt && !T.indirect ? `；射後裝填 ${T.reload} 回合（期間改用步槍）` : ''}</td></tr>`).join('');
+    `<td>${T.guard ? '手槍 ' + (T.range / C).toFixed(1) : T.aa ? '手槍 ' + (T.melee / C).toFixed(1) + '／田字／攔截 ' + (T.aa / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${hearts(T.dmg)}</td>` +
+    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；走法同車；只能打同一橫線／直線上、距離 4～5.2 格的目標；射後裝填 ${T.reload} 回合（期間改用步槍），近距離毫無辦法` : T.guard ? '限九宮斜走一格；手槍可打相鄰與斜角的敵人；帥被直射（非炮、非火箭）時，若仕的某個落點剛好在射線上，會自動走過去擋下並換位' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（攔截後冷卻：對方接下來 ${T.reload} 次攻擊攔截不了）；手槍可打相鄰與田字對角點的敵人；走田字（象眼被塞就過不去；田字走不了時改走一步）` : T.line ? '走法如傳統象棋的車：橫線／直線不限距離（不能穿過棋子）；機槍只能打同一橫線／直線上的目標（比炮短 1 格），直射會被擋' : T.knight ? '走日字（可跳過棋子），蹩馬腳不能走；日字都走不了時改走一步；火箭只能打日字位置、可被相攔截；近戰隨時可用步槍（1 心）' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛；可前進或橫移，不能往後退' : '直射，會被擋'}${T.alt && !T.indirect ? `；射後裝填 ${T.reload} 回合（期間改用步槍）` : ''}</td></tr>`).join('');
 // ===== 電腦對戰（AI） =====
 // 列舉電腦每顆棋子「原地或移到某個可走的點，再攻擊某個目標（或不攻擊）」的所有行動，
 // 用與實際規則相同的函式（scan、shotgunSim、guardBlock、interceptorFor）估算傷害來打分。
@@ -1681,6 +1681,7 @@ showCardsBtn();
 // ===== 更新內容 =====
 // 每次改版在最上面加一筆；版本更新後第一次開啟會自動彈出新內容，☰ 選單也可隨時查看
 const CHANGELOG = [
+  { v: '2026-10-18.29', t: ['仕新增近距離攻擊：手槍 1 心，可打相鄰與斜角的敵人'] },
   { v: '2026-10-18.28', t: ['炮射擊後需冷卻 1 回合（期間改用步槍）', '俥的機槍威力降為 1.5 心'] },
   { v: '2026-10-18.27', t: ['仕改為「直射才擋」：只有帥被機槍／步槍／霰彈等直射攻擊，且仕的某個合法落點剛好在射線上時，仕才會自動走過去擋（並永久換位）；炮擊與火箭擋不住', '移動後會停下來顯示攻擊範圍與可打目標，不滿意可按「↩ 取消移動」（或 Esc、點其他己方棋子）退回原位換別的棋；快速模式沒有目標時仍自動結束'] },
   { v: '2026-10-18.26', t: ['新增「我的強化」清單：隨時查看已拿到的強化卡、張數與累計效果，並提示下次選牌的時機（棋盤下方的 🃏 按鈕）', '強化卡牌表改為可維護：說明可由效果自動產生、可單張停用、格式有誤的卡會被忽略並警告（見 games/CARDS.md）'] },
@@ -1705,7 +1706,7 @@ $('mLog').onclick = () => showLog(true);
 
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.28';
+const VERSION = '2026-10-18.29';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
