@@ -90,10 +90,10 @@ const TYPES = {
   R: { n: ['俥', '車'], hp: 4, dist: 7 * C,   range: 3 * C,   min: 0,     dmg: 2, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst' },
   N: { n: ['傌', '馬'], hp: 3, dist: 4.5 * C, range: 3.4 * C, min: 0,     dmg: 1.5, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket' },
   C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 1.5, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', indirect: true, reload: 3, splash: 1.5 * C },   // 射後需裝填 3 回合；上下左右相鄰受 1/2 傷害、斜角受 1/4（無條件捨去到 ¼ 心）
-  // 相／象：治療單位，不能攻擊；每回合開始替 2.5 格內友軍補 ½ 心；過河後每次只能走一格
+  // 相／象：防空，不能攻擊；自動攔截落點在 2 格內的火箭／砲彈，攔截後冷卻 2 回合；過河後每次只能走一格
   // 仕／士：護衛，不能攻擊；限九宮斜走一格；帥被直接攻擊時，相鄰的士衝出來替帥擋下
   G: { n: ['仕', '士'], hp: 3, dist: 1.5 * C, range: 0,       min: 0,     dmg: 0, mass: 1.5, w: '無（護衛）', palace: true, guard: true },
-  E: { n: ['相', '象'], hp: 3, dist: 3 * C,   range: 0,       min: 0,     dmg: 0, mass: 1.5, w: '治療',   heal: 2.5 * C },
+  E: { n: ['相', '象'], hp: 3, dist: 3 * C,   range: 0,       min: 0,     dmg: 0, mass: 1.5, w: '防空攔截', aa: 2 * C, reload: 2 },
   P: { n: ['兵', '卒'], hp: 2, dist: 1 * C,   range: 1.8 * C, min: 0,     dmg: 1, mass: 1,   w: '步槍',   snd: 'rifle',  proj: 'bullet', tag: '（未過河）', locked: true },
   // 過河兵：自由移動，霰彈槍 9 發彈丸呈扇形，越近命中越多（傷害與命中數成正比，全中 2 心）
   P2: { n: ['兵', '卒'], hp: 2, dist: 3.5 * C, range: 2.6 * C, min: 0,    dmg: 2, mass: 1,   w: '霰彈槍', snd: 'shotgun', proj: 'pellets', tag: '（過河）',
@@ -166,7 +166,7 @@ const SFX = (() => {
     shotgun: () => { noise(3500, 150, 0.35, 0.85); tone('square', 220, 50, 0.14, 0.3);
                      noise(2500, 1800, 0.05, 0.25, 0.32, 'bandpass', 3); noise(2000, 1500, 0.06, 0.25, 0.45, 'bandpass', 3); },  // 砰＋上膛
     promote: () => [392, 523, 659].forEach((f, i) => tone('square', f, f, 0.12, 0.1, i * 0.08)),
-    heal:    () => [784, 988, 1319].forEach((f, i) => tone('sine', f, f * 1.01, 0.25, 0.12, i * 0.07)),
+    aa:      () => { noise(1200, 6000, 0.3, 0.35, 0, 'bandpass', 2); tone('square', 700, 1900, 0.18, 0.06); },   // 攔截飛彈升空
     win:     () => [523, 659, 784, 1047].forEach((f, i) => tone('triangle', f, f, i === 3 ? 0.7 : 0.3, 0.25, i * 0.14)),
   };
   return {
@@ -282,7 +282,7 @@ function physics(dt) {
 const fwd = p => p.s ? 1 : -1;
 const crossed = (s, y) => s ? y > gy(4.5) : y < gy(4.5);
 // 只能走一格的情況：未過河的兵（只能往前）、已過河的相（上下左右）
-const oneStep = p => p.T.locked || (p.T.heal && crossed(p.s, p.y));
+const oneStep = p => p.T.locked || (p.T.aa && crossed(p.s, p.y));
 // 這顆棋子可以停的交叉點（帥／將限九宮）
 function pointsFor(p) {
   const pts = [], [x0, y0, x1, y1] = bounds(p);
@@ -413,21 +413,13 @@ function promoteCrossed() {
 }
 
 // ----- 回合流程 -----
-// 每回合開始：相／象替半徑內的友軍（不含自己）補 ½ 心，多隻相不疊加
-function healPhase(side) {
-  const healers = alive().filter(p => p.s === side && p.T.heal);
-  let any = false;
-  for (const q of alive())
-    if (q.s === side && q.hp < q.T.hp && healers.some(h => h !== q && Math.hypot(h.x - q.x, h.y - q.y) <= h.T.heal + 1)) {
-      q.hp = Math.min(q.T.hp, q.hp + 0.5); healFX(q); any = true;
-    }
-  if (any) SFX.play('heal');
+// 防空：side 方能攔截落點 (x,y) 的相（冷卻完畢、落點在攔截範圍內），取最近的一隻
+function interceptorFor(side, x, y) {
+  return alive().filter(e => e.s === side && e.T.aa && !e.cd && Math.hypot(e.x - x, e.y - y) <= e.T.aa + 1)
+                .sort((u, v) => Math.hypot(u.x - x, u.y - y) - Math.hypot(v.x - x, v.y - y))[0] || null;
 }
-function healFX(q) {
-  fx.push({ k: 'txt', x: q.x, y: q.y - R, txt: '+½♥', t: 1.3, T: 1.3, col: '#159447', side: q.s });
-  emit(q.x, q.y, 12, { k: 'spark', sp: 70, life: 0.7, size: 2.5, col: '#7dff9a' });
-}
-const reloadMsg = p => `${p.T.n[p.s]}裝填中，還要 ${p.cd} 回合才能再射擊。`;
+const flies = T => T.proj === 'rocket' || T.proj === 'shell';   // 會被防空攔截的武器
+const reloadMsg = p => p.T.aa ? `${p.T.n[p.s]}冷卻中，還要 ${p.cd} 回合才能再攔截。` : `${p.T.n[p.s]}裝填中，還要 ${p.cd} 回合才能再射擊。`;
 function setSkip(on) {
   $('skip').disabled = !on;
   $('skip').textContent = state === 'target' && moved ? '不射擊' : '取消';
@@ -444,10 +436,10 @@ function onStop() {
            (moved ? '或按「不射擊」。' : '或按「取消」／點其他己方棋子改操作。'));
   } else if (!moved) {   // 原地選取但沒東西可打：不浪費回合，回到選棋
     const p = mover;
-    cancelSelect((p.T.heal ? `${p.T.n[p.s]}不會攻擊，每回合替周圍友軍補 ½ 心。` : p.T.guard ? `${p.T.n[p.s]}不會攻擊，負責替帥擋子彈。` : p.cd > 0 && targets.length ? reloadMsg(p) : '射程內沒有可攻擊的敵人，') + '請選擇移動位置或換別的棋子。');
+    cancelSelect((p.T.aa ? `${p.T.n[p.s]}不會攻擊，負責攔截飛來的火箭和砲彈。` : p.T.guard ? `${p.T.n[p.s]}不會攻擊，負責替帥擋子彈。` : p.cd > 0 && targets.length ? reloadMsg(p) : '射程內沒有可攻擊的敵人，') + '請選擇移動位置或換別的棋子。');
   } else {
     state = 'fire'; timer = 0.9;
-    setMsg(mover.T.heal ? `${mover.T.n[mover.s]}就定位，下回合開始替周圍友軍補血。` : mover.T.guard ? `${mover.T.n[mover.s]}就定位，守在帥身邊。` : mover.cd > 0 && targets.length ? reloadMsg(mover)
+    setMsg(mover.T.aa ? `${mover.T.n[mover.s]}就定位，藍圈內的火箭和砲彈會被攔截。` : mover.T.guard ? `${mover.T.n[mover.s]}就定位，守在帥身邊。` : mover.cd > 0 && targets.length ? reloadMsg(mover)
            : targets.length ? '射程內的敵人都被擋住或太近，無法開火。' : '射程內沒有敵人。');
   }
 }
@@ -498,7 +490,7 @@ function shootAt(a, b, tx, ty, aim) {
     fx.push({ ...base, k: 'bullet', t: 0.12, T: 0.12, done: () => impact(a, b) });
   } else if (T.proj === 'rocket') {
     muzzle(mx, my, dir, true);
-    fx.push({ ...base, k: 'rocket', t: 0.45, T: 0.45, done: () => impact(a, b) });
+    fx.push(intercept(a, b, aim, { ...base, k: 'rocket', t: 0.45, T: 0.45, done: () => impact(a, b) }));
   } else if (T.proj === 'pellets') {   // 霰彈：扇形彈丸同時飛出
     muzzle(mx, my, dir, true); shake = Math.max(shake, 3);
     const { rays, count } = shotgunSim(a, aim);
@@ -518,8 +510,31 @@ function shootAt(a, b, tx, ty, aim) {
     } });
   } else {                             // 曲射砲：拋物線飛行
     muzzle(mx, my, dir, true);
-    fx.push({ ...base, k: 'shell', t: 0.8, T: 0.8, h: Math.hypot(tx - a.x, ty - a.y) * 0.45, done: () => impact(a, b) });
+    fx.push(intercept(a, b, aim, { ...base, k: 'shell', t: 0.8, T: 0.8, h: Math.hypot(tx - a.x, ty - a.y) * 0.45, done: () => impact(a, b) }));
   }
+}
+// 防空攔截：落點附近有對方冷卻完畢的相，就發射攔截飛彈，在空中把火箭／砲彈打爆（沒有傷害）
+const STOP_AT = 0.65;   // 飛到 65% 時被攔下
+function intercept(a, b, aim, f) {
+  const e = interceptorFor(1 - a.s, aim.x, aim.y);   // 以原本瞄準的目標判定範圍（士衝出來擋時仍算帥的位置）
+  if (!e) return f;
+  const [ix, iy] = projPos({ ...f, t: f.T * (1 - STOP_AT) }), flight = f.T * STOP_AT;
+  e.cd = e.T.reload;
+  fx.push({ k: 'rocket', x1: e.x, y1: e.y, x2: ix, y2: iy, dir: Math.atan2(iy - e.y, ix - e.x), side: e.s,
+            t: flight * 0.7, T: flight * 0.7, delay: flight * 0.3, start: () => { SFX.play('aa'); muzzle(e.x, e.y, Math.atan2(iy - e.y, ix - e.x), false); } });
+  f.stopAt = STOP_AT;
+  f.done = () => {   // 空中爆炸
+    flashAt(ix, iy, 40, 0.15);
+    parts.push({ x: ix, y: iy, vx: 0, vy: 0, t: 0.35, L: 0.35, size: 45, k: 'ring', drag: 0 });
+    emit(ix, iy, 24, { k: 'spark', sp: 260, life: 0.45, size: 2.5, col: '#ffd23f' });
+    emit(ix, iy, 8, { k: 'smoke', sp: 40, life: 1, size: 11, col: '#777' });
+    SFX.play('boom', false); shake = Math.max(shake, 4);
+    if (b.dash) b.dash.back = true;   // 衝出來擋的士退回
+    fx.push({ k: 'txt', x: ix, y: iy - 10, txt: '攔截！', t: 1.2, T: 1.2, col: '#2f6fb5', side: e.s });
+    setMsg(`${e.T.n[e.s]}攔截了${a.T.n[a.s]}的${a.T.proj === 'rocket' ? '火箭' : '砲彈'}！（${e.T.n[e.s]}冷卻 ${e.T.reload} 回合）`);
+    timer = Math.max(timer, 0.9);
+  };
+  return f;
 }
 function impact(a, b, dmg = a.T.dmg, note = '') {
   const T = a.T, heavy = T.proj === 'rocket' || T.proj === 'shell';
@@ -560,7 +575,6 @@ function endTurn() {
   for (const p of pieces) if (p.s === turn && p.cd > 0 && p !== firedPiece) p.cd--;
   firedPiece = null;
   turn = 1 - turn; state = 'aim'; targets = []; moved = false; setSkip(false); updateHeader();
-  healPhase(turn);
   send({ t: 'end', snap: snapshot() });
 }
 function update(dt) {
@@ -589,6 +603,7 @@ function update(dt) {
   for (const f of fx) {
     if (f.delay > 0) { f.delay -= dt; if (f.delay <= 0 && f.start) f.start(); continue; }
     f.t -= dt;
+    if (f.stopAt && 1 - f.t / f.T >= f.stopAt) f.t = 0;   // 被攔截：提早結束
     if (f.k === 'rocket' && f.t > 0) {   // 火箭尾焰與煙
       const [x, y] = projPos(f);
       emit(x, y, 2, { k: 'smoke', sp: 20, life: 0.7, size: 7, col: '#999' });
@@ -622,7 +637,7 @@ function selectPiece(p) {
   setMsg(!sel.moves.length && !atk ? `${nm}沒有可走的位置，也沒有可攻擊的目標，請換別的棋子。`
     : `${nm}：` + (sel.moves.length ? '點綠點移動' + (oneStep(p) ? '（每次只能走一格）' : '') : '沒有可走的位置') +
       (atk ? '，或點黃色準星原地攻擊' : '') + '；點別處取消。' +
-      (p.T.heal ? `（每回合替綠圈內友軍補 ½ 心）` : p.T.guard ? '（九宮內斜走一格；在帥旁邊時會替帥擋子彈）' : p.cd > 0 ? `（裝填中還要 ${p.cd} 回合）` : ''));
+      (p.T.aa ? (p.cd > 0 ? `（攔截冷卻中，還要 ${p.cd} 回合）` : '（藍圈內的火箭和砲彈會被自動攔截）') : p.T.guard ? '（九宮內斜走一格；在帥旁邊時會替帥擋子彈）' : p.cd > 0 ? `（裝填中還要 ${p.cd} 回合）` : ''));
 }
 function cancelSel(msg = '已取消，請重新選擇棋子。') {
   sel = null; state = 'aim'; setSkip(false); setMsg(msg);
@@ -740,10 +755,13 @@ function drawIcon(p) {
     fill('#2f6fb5', () => { ctx.moveTo(0, -8); ctx.lineTo(7, -5.5); ctx.lineTo(6.5, 1); ctx.quadraticCurveTo(5, 6, 0, 8); ctx.quadraticCurveTo(-5, 6, -6.5, 1); ctx.lineTo(-7, -5.5); ctx.closePath(); });
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.stroke();
     ctx.fillStyle = '#fff'; ctx.fillRect(-0.8, -5.5, 1.6, 11); ctx.fillRect(-4.5, -2, 9, 1.6);
-  } else if (k === 'E') {   // 護士（紅十字）
-    fill('#fff', () => ctx.arc(0, 0, 7.5, 0, Math.PI * 2));
-    ctx.strokeStyle = '#999'; ctx.lineWidth = 1; ctx.stroke();
-    ctx.fillStyle = '#e33'; ctx.fillRect(-1.7, -5, 3.4, 10); ctx.fillRect(-5, -1.7, 10, 3.4);
+  } else if (k === 'E') {   // 防空飛彈（斜向上的飛彈＋發射架）
+    ctx.fillStyle = dark; ctx.fillRect(-9, 4, 18, 3); ctx.fillRect(-2, 1, 4, 4);
+    ctx.save(); ctx.rotate(-0.8);
+    ctx.fillStyle = '#eee'; ctx.fillRect(-7, -1.8, 12, 3.6); ctx.strokeStyle = '#888'; ctx.lineWidth = 0.8; ctx.strokeRect(-7, -1.8, 12, 3.6);
+    fill(acc, () => { ctx.moveTo(5, -1.8); ctx.lineTo(9, 0); ctx.lineTo(5, 1.8); ctx.closePath(); });
+    fill('#2f6fb5', () => { ctx.moveTo(-7, -1.8); ctx.lineTo(-9, -4); ctx.lineTo(-4, -1.8); ctx.closePath(); ctx.moveTo(-7, 1.8); ctx.lineTo(-9, 4); ctx.lineTo(-4, 1.8); ctx.closePath(); });
+    ctx.restore();
   } else if (k === 'R') {   // 機槍
     ctx.fillStyle = dark; ctx.fillRect(-10, -4, 9, 6); ctx.fillRect(-1, -2.5, 12, 2.4); ctx.fillRect(-7, 2, 3, 5);
     ctx.fillRect(10, -4, 1.5, 4); ctx.fillStyle = '#c8a24a'; ctx.fillRect(-4, 2, 4, 3);   // 準星、彈鏈
@@ -799,12 +817,12 @@ function drawPiece(p) {
   }
   ctx.restore();
 }
-function healRing(x, y, r) {
-  circle(x, y, r); ctx.fillStyle = '#2ecc7118'; ctx.fill();
-  ctx.strokeStyle = '#1e9e4a99'; ctx.lineWidth = 2; ctx.setLineDash([3, 5]); ctx.stroke(); ctx.setLineDash([]);
+function aaRing(x, y, r, ready = true) {
+  circle(x, y, r); ctx.fillStyle = ready ? '#2f6fb518' : '#55555510'; ctx.fill();
+  ctx.strokeStyle = ready ? '#2f6fb5aa' : '#7778'; ctx.lineWidth = 2; ctx.setLineDash([3, 5]); ctx.stroke(); ctx.setLineDash([]);
 }
 function rangeRing(p, x, y) {
-  if (p.T.heal) { healRing(x, y, p.T.heal); return; }
+  if (p.T.aa) { aaRing(x, y, p.T.aa, !p.cd); return; }
   circle(x, y, p.T.range); ctx.fillStyle = '#c0392b14'; ctx.fill();
   ctx.strokeStyle = '#c0392b88'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke();
   if (p.T.min) { circle(x, y, p.T.min); ctx.strokeStyle = '#5558'; ctx.stroke(); }
@@ -825,8 +843,8 @@ function marks(list, T, ghost) {
       line(x, y - R - 12, x, y - R - 2); line(x, y + R + 2, x, y + R + 12);
       if (t.est) {   // 預估傷害
         ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3;
-        const gd = guardFor(t.p, mover || (sel && sel.p) || t.p);
-        textAt(gd ? '🛡 仕擋' : '-' + hearts(t.est), x, y, -R - 30, textAng(turn), gd ? '#2f6fb5' : '#e8202a', '#fff');
+        const gd = guardFor(t.p, mover || (sel && sel.p) || t.p), aa = T && flies(T) && interceptorFor(t.p.s, x, y);
+        textAt(aa ? '✈ 會被攔截' : gd ? '🛡 仕擋' : '-' + hearts(t.est), x, y, -R - 30, textAng(turn), gd || aa ? '#2f6fb5' : '#e8202a', '#fff');
       }
     } else {
       ctx.strokeStyle = '#7778'; ctx.lineWidth = 2; circle(x, y, R + 5); ctx.stroke();
@@ -902,11 +920,11 @@ function draw() {
   if (shake) ctx.translate(rnd(shake), rnd(shake));
   drawBoard();
   drawDecals();
-  // 交叉點標記（可停的定點）與相的治療範圍
+  // 交叉點標記（可停的定點）與相的防空範圍（冷卻中變灰）
   ctx.fillStyle = '#6b442355';
   for (let c = 0; c <= 8; c++) for (let r = 0; r <= 9; r++) { circle(gx(c), gy(r), 2.5); ctx.fill(); }
-  for (const h of alive()) if (h.T.heal && !(sel && sel.p === h)) {
-    circle(h.x, h.y, h.T.heal); ctx.strokeStyle = h.s ? '#1e9e4a40' : '#1e9e4a55'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 5]); ctx.stroke(); ctx.setLineDash([]);
+  for (const h of alive()) if (h.T.aa && !(sel && sel.p === h)) {
+    circle(h.x, h.y, h.T.aa); ctx.strokeStyle = h.cd ? '#7775' : '#2f6fb570'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 5]); ctx.stroke(); ctx.setLineDash([]);
   }
   if (state === 'aim') for (const p of alive()) if (p.s === turn) {
     circle(p.x, p.y, R + 5); ctx.strokeStyle = turn ? '#0005' : '#c0392b66'; ctx.lineWidth = 3; ctx.stroke();
@@ -931,9 +949,9 @@ function draw() {
     }
     // 未選目的地：顯示原地可攻擊的目標；已選：預覽到目的地後可打到誰（淡色）
     preview = sel.dest ? scan(p, ex, ey, T) : sel.scan; markT = T; ghost = !!sel.dest;
-    if (p.T.heal) for (const q of alive())   // 預覽：哪些友軍會被補到
-      if (q !== p && q.s === p.s && Math.hypot(q.x - ex, q.y - ey) <= p.T.heal + 1) {
-        circle(q.x, q.y, R + 5); ctx.strokeStyle = q.hp < q.T.hp ? '#1e9e4a' : '#1e9e4a55'; ctx.lineWidth = 3; ctx.stroke();
+    if (p.T.aa) for (const q of alive())   // 預覽：哪些友軍會在防空保護範圍內
+      if (q !== p && q.s === p.s && Math.hypot(q.x - ex, q.y - ey) <= p.T.aa + 1) {
+        circle(q.x, q.y, R + 5); ctx.strokeStyle = '#2f6fb5aa'; ctx.lineWidth = 3; ctx.stroke();
       }
   }
   if (state === 'target') {
@@ -974,11 +992,11 @@ function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; dr
 
 $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動(格)</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
   Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${(T.dist / C).toFixed(1)}</td>` +
-    `<td>${T.guard ? '護衛' : T.heal ? '治療 ' + (T.heal / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${T.guard ? '-' : T.heal ? '<span style="color:#2ecc71">+½</span>' : hearts(T.dmg)}</td>` +
-    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；射後裝填 ${T.reload} 回合` : T.guard ? '限九宮斜走一格；帥被攻擊時衝出來替帥擋下（炮的波及擋不住）' : T.palace ? '限九宮' : T.heal ? '不能攻擊；每回合替範圍內友軍補 ½ 心；過河後每次只能走一格' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛' : '直射，會被擋'}</td></tr>`).join('');
+    `<td>${T.guard ? '護衛' : T.aa ? '攔截 ' + (T.aa / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${T.guard ? '-' : T.aa ? '-' : hearts(T.dmg)}</td>` +
+    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；射後裝填 ${T.reload} 回合` : T.guard ? '限九宮斜走一格；帥被攻擊時衝出來替帥擋下（炮的波及擋不住）' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（冷卻 ${T.reload} 回合）；不能攻擊；過河後每次只能走一格` : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛' : '直射，會被擋'}</td></tr>`).join('');
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.5';
+const VERSION = '2026-10-18.6';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
@@ -1018,11 +1036,7 @@ function applySnap(sn) {
 }
 function applyEnd() {
   const sn = pendingEnd; pendingEnd = null;
-  const before = pieces.map(p => p.hp);
   applySnap(sn);
-  let healed = false;   // 對方送來的補血也播特效
-  pieces.forEach((p, i) => { if (p.hp > 0 && p.hp > before[i]) { healFX(p); healed = true; } });
-  if (healed) SFX.play('heal');
   targets = []; moved = false; sel = null; setSkip(false);
   if (winner !== null) { state = 'over'; SFX.play('win'); }
   else { state = 'aim'; setMsg(myTurn() ? '輪到你了！拉動己方棋子移動，停下後點選要攻擊的敵人。' : '等待對手操作…'); }
