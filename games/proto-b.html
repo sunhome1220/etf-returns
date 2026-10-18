@@ -92,13 +92,13 @@ const gx = c => M + c * C, gy = r => M + r * C;
 const SIDE = [{ name: '紅方', col: '#c0392b' }, { name: '黑方', col: '#1d1d1d' }];
 const TYPES = {
   K: { n: ['帥', '將'], hp: 3, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 3,   w: '手槍',   snd: 'pistol', proj: 'bullet', palace: true },
-  R: { n: ['俥', '車'], hp: 4, dist: 7 * C,   range: 3 * C,   min: 0,     dmg: 2, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst' },
+  R: { n: ['俥', '車'], hp: 4, dist: 7 * C,   range: 3 * C,   min: 0,     dmg: 2, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst', line: true },   // 只能沿橫線／直線移動與攻擊
   N: { n: ['傌', '馬'], hp: 3, dist: 4.5 * C, range: 3.4 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket' },
   C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', indirect: true, reload: 3, splash: 1.5 * C },   // 射後需裝填 3 回合；上下左右相鄰受 1/2 傷害、斜角受 1/4（無條件捨去到 ¼ 心）
-  // 相／象：防空，不能攻擊；自動攔截落點在 2 格內的火箭／砲彈，攔截後冷卻 2 回合；過河後每次只能走一格
+  // 相／象：防空＋近戰；自動攔截落點在 2 格內的火箭／砲彈（冷卻 2 回合，不影響近戰）；近戰 1 心、射程 1.5 格；過河後每次只能走一格
   // 仕／士：護衛，不能攻擊；限九宮斜走一格；帥被直接攻擊時，相鄰的士衝出來替帥擋下
   G: { n: ['仕', '士'], hp: 3, dist: 1.5 * C, range: 0,       min: 0,     dmg: 0, mass: 1.5, w: '無（護衛）', palace: true, guard: true },
-  E: { n: ['相', '象'], hp: 3, dist: 3 * C,   range: 0,       min: 0,     dmg: 0, mass: 1.5, w: '防空攔截', aa: 2 * C, reload: 2 },
+  E: { n: ['相', '象'], hp: 3, dist: 3 * C,   range: 1.5 * C, min: 0,     dmg: 1, mass: 1.5, w: '手槍',   snd: 'pistol', proj: 'bullet', aa: 2 * C, reload: 2 },
   P: { n: ['兵', '卒'], hp: 2, dist: 1 * C,   range: 1.8 * C, min: 0,     dmg: 1, mass: 1,   w: '步槍',   snd: 'rifle',  proj: 'bullet', tag: '（未過河）', locked: true },
   // 過河兵：自由移動，霰彈槍 9 發彈丸呈扇形，越近命中越多（傷害與命中數成正比，全中 2 心）
   P2: { n: ['兵', '卒'], hp: 2, dist: 3.5 * C, range: 2.6 * C, min: 0,    dmg: 2, mass: 1,   w: '霰彈槍', snd: 'shotgun', proj: 'pellets', tag: '（過河）',
@@ -317,7 +317,7 @@ function movesFor(p) {
                          .map(([sx, sy]) => [p.x + sx * C, p.y + sy * C]).filter(([x, y]) => pts.some(at(x, y)));
   else if (oneStep(p)) cand = (p.T.locked ? [[0, fwd(p)]] : [[1, 0], [-1, 0], [0, 1], [0, -1]])
                          .map(([sx, sy]) => [p.x + sx * C, p.y + sy * C]).filter(([x, y]) => pts.some(at(x, y)));
-  else cand = pts.filter(([x, y]) => { const d = Math.hypot(x - p.x, y - p.y); return d > 1 && d <= p.T.dist + 1; });
+  else cand = pts.filter(([x, y]) => { const d = Math.hypot(x - p.x, y - p.y); return d > 1 && d <= p.T.dist + 1 && (!p.T.line || Math.abs(x - p.x) < 1 || Math.abs(y - p.y) < 1); });
   return cand.filter(([x, y]) => !alive().some(q => at(x, y)([q.x, q.y])) && pathClear(p, x, y));
 }
 // 以初速 v 沿 (ux,uy) 直線滑行的距離（含河道摩擦、不考慮邊界反彈）
@@ -402,7 +402,8 @@ function scan(a, x = a.x, y = a.y, T = a.T) {
   return alive().filter(p => p.s !== a.s).map(p => {
     const d = Math.hypot(p.x - x, p.y - y);
     if (d > T.range) return null;
-    if (a.cd > 0) return { p, ok: false, why: `裝填中 ${a.cd}` };
+    if (T.line && Math.abs(p.x - x) > 1 && Math.abs(p.y - y) > 1) return null;   // 俥：只能打同一直線
+    if (a.cd > 0 && !a.T.aa) return { p, ok: false, why: `裝填中 ${a.cd}` };
     if (d < T.min) return { p, ok: false, why: '太近' };
     if (!T.indirect && blocked(a, p, x, y)) return { p, ok: false, why: '被擋' };
     return { p, ok: true, est: T.pellets ? pelletDmg(shotgunSim(a, p, x, y, T).count.get(p) || 0) : T.dmg };
@@ -443,10 +444,10 @@ function onStop() {
            (moved ? '或按「不射擊」。' : '或按「取消」／點其他己方棋子改操作。'));
   } else if (!moved) {   // 原地選取但沒東西可打：不浪費回合，回到選棋
     const p = mover;
-    cancelSelect((p.T.aa ? `${p.T.n[p.s]}不會攻擊，負責攔截飛來的火箭和砲彈。` : p.T.guard ? `${p.T.n[p.s]}不會攻擊，負責替帥擋子彈。` : p.cd > 0 && targets.length ? reloadMsg(p) : '射程內沒有可攻擊的敵人，') + '請選擇移動位置或換別的棋子。');
+    cancelSelect((p.T.aa ? `${p.T.n[p.s]}射程內沒有敵人（近戰 1.5 格），負責攔截飛來的火箭和砲彈。` : p.T.guard ? `${p.T.n[p.s]}不會攻擊，負責替帥擋子彈。` : p.cd > 0 && targets.length ? reloadMsg(p) : '射程內沒有可攻擊的敵人，') + '請選擇移動位置或換別的棋子。');
   } else {
     state = 'fire'; timer = 0.9;
-    setMsg(mover.T.aa ? `${mover.T.n[mover.s]}就定位，藍圈內的火箭和砲彈會被攔截。` : mover.T.guard ? `${mover.T.n[mover.s]}就定位，守在帥身邊。` : mover.cd > 0 && targets.length ? reloadMsg(mover)
+    setMsg(mover.T.aa && !targets.length ? `${mover.T.n[mover.s]}就定位，藍圈內的火箭和砲彈會被攔截。` : mover.T.guard ? `${mover.T.n[mover.s]}就定位，守在帥身邊。` : mover.cd > 0 && targets.length ? reloadMsg(mover)
            : targets.length ? '射程內的敵人都被擋住或太近，無法開火。' : '射程內沒有敵人。');
   }
 }
@@ -483,7 +484,7 @@ function shootAt(a, b, tx, ty, aim) {
   const T = a.T, dir = Math.atan2(ty - a.y, tx - a.x);
   const mx = a.x + Math.cos(dir) * (R + 8), my = a.y + Math.sin(dir) * (R + 8);
   a.hd = dir; a.recoil = 1;
-  if (T.reload) { a.cd = T.reload; firedPiece = a; }
+  if (T.reload && !T.aa) { a.cd = T.reload; firedPiece = a; }
   SFX.play(T.snd);
   if (b === aim) setMsg(`${T.n[a.s]} 用${T.w}攻擊 ${b.T.n[b.s]}！`);
   const base = { x1: mx, y1: my, x2: tx, y2: ty, dir, side: a.s };
@@ -645,7 +646,7 @@ function selectPiece(p) {
   setMsg(!sel.moves.length && !atk ? `${nm}沒有可走的位置，也沒有可攻擊的目標，請換別的棋子。`
     : `${nm}：` + (sel.moves.length ? '點綠點移動' + (oneStep(p) ? '（每次只能走一格）' : '') : '沒有可走的位置') +
       (atk ? '，或點黃色準星原地攻擊' : '') + '；點別處取消。' +
-      (p.T.aa ? (p.cd > 0 ? `（攔截冷卻中，還要 ${p.cd} 回合）` : '（藍圈內的火箭和砲彈會被自動攔截）') : p.T.guard ? '（九宮內斜走一格；在帥旁邊時會替帥擋子彈）' : p.cd > 0 ? `（裝填中還要 ${p.cd} 回合）` : ''));
+      (p.T.aa ? (p.cd > 0 ? `（防空冷卻中，還要 ${p.cd} 回合；近戰不受影響）` : '（藍圈內的火箭和砲彈會被自動攔截）') : p.T.guard ? '（九宮內斜走一格；在帥旁邊時會替帥擋子彈）' : p.cd > 0 ? `（裝填中還要 ${p.cd} 回合）` : ''));
 }
 function cancelSel(msg = '已取消，請重新選擇棋子。') {
   sel = null; state = 'aim'; setSkip(false); setMsg(msg);
@@ -830,7 +831,14 @@ function aaRing(x, y, r, ready = true) {
   ctx.strokeStyle = ready ? '#2f6fb5aa' : '#7778'; ctx.lineWidth = 2; ctx.setLineDash([3, 5]); ctx.stroke(); ctx.setLineDash([]);
 }
 function rangeRing(p, x, y) {
-  if (p.T.aa) { aaRing(x, y, p.T.aa, !p.cd); return; }
+  if (p.T.line) {   // 俥：只能打橫線／直線
+    ctx.strokeStyle = '#c0392b88'; ctx.lineWidth = 16; ctx.lineCap = 'round'; ctx.globalAlpha = 0.18;
+    line(x - p.T.range, y, x + p.T.range, y); line(x, y - p.T.range, x, y + p.T.range);
+    ctx.globalAlpha = 1; ctx.lineCap = 'butt'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    line(x - p.T.range, y, x + p.T.range, y); line(x, y - p.T.range, x, y + p.T.range); ctx.setLineDash([]);
+    return;
+  }
+  if (p.T.aa) { aaRing(x, y, p.T.aa, !p.cd); circle(x, y, p.T.range); ctx.strokeStyle = '#c0392b88'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]); return; }
   circle(x, y, p.T.range); ctx.fillStyle = '#c0392b14'; ctx.fill();
   ctx.strokeStyle = '#c0392b88'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke();
   if (p.T.min) { circle(x, y, p.T.min); ctx.strokeStyle = '#5558'; ctx.stroke(); }
@@ -1000,17 +1008,16 @@ function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; dr
 
 $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動(格)</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
   Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${(T.dist / C).toFixed(1)}</td>` +
-    `<td>${T.guard ? '護衛' : T.aa ? '攔截 ' + (T.aa / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${T.guard ? '-' : T.aa ? '-' : hearts(T.dmg)}</td>` +
-    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；射後裝填 ${T.reload} 回合` : T.guard ? '限九宮斜走一格；帥被攻擊時衝出來替帥擋下（炮的波及擋不住）' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（冷卻 ${T.reload} 回合）；不能攻擊；過河後每次只能走一格` : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛' : '直射，會被擋'}</td></tr>`).join('');
+    `<td>${T.guard ? '護衛' : T.aa ? '近戰 ' + (T.range / C).toFixed(1) + '／攔截 ' + (T.aa / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${T.guard ? '-' : hearts(T.dmg)}</td>` +
+    `<td>${T.indirect ? `曲射，越過障礙；相鄰受 1/2、斜角受 1/4 傷害（敵我皆傷）；射後裝填 ${T.reload} 回合` : T.guard ? '限九宮斜走一格；帥被攻擊時衝出來替帥擋下（炮的波及擋不住）' : T.palace ? '限九宮' : T.aa ? `自動攔截落點在範圍內的火箭／砲彈（冷卻 ${T.reload} 回合）；另有近戰攻擊；過河後每次只能走一格` : T.line ? '只能沿橫線／直線移動與攻擊（目標須在同一直線上）；機槍直射會被擋' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛' : '直射，會被擋'}</td></tr>`).join('');
 // ===== 電腦對戰（AI） =====
 // 列舉電腦每顆棋子「原地或移到某個可走的點，再攻擊某個目標（或不攻擊）」的所有行動，
 // 用與實際規則相同的函式（scan、shotgunSim、guardFor、interceptorFor）估算傷害來打分。
 // 難度：1 新手＝隨機；2 簡單＝貪心但常失誤；
-//       3、4＝貪心後，對分數最高的前 N 個行動推算「對手最好的反擊」並扣分（3：前 6 個、4：前 12 個）；
-//       5＝再多看一步：我方行動 → 對手最佳反擊 → 我方最佳追擊。
-// 參數由電腦互打調校（權重 0.5 最佳；往前推進的位置分實測沒有幫助，預設關閉）
-const AI_CFG = { 3: { top: 6, w: 0.5, rnd: 0.6, pos: false }, 4: { top: 12, w: 0.5, rnd: 0.3, pos: false },
-                 5: { top: 12, w: 0.5, rnd: 0.1, pos: false, deep: 0.5 } };
+//       3、4、5＝貪心後，對分數最高的前 N 個行動推算「對手最好的反擊」並扣分（3：前 6 個、4：前 12 個、5：前 20 個，隨機性遞減）。
+// 參數由電腦互打調校：再多看一步（我方追擊）與往前推進的位置分，實測都沒有幫助，預設關閉
+const AI_CFG = { 3: { top: 6, w: 0.5, rnd: 0.6, pos: false }, 4: { top: 12, w: 0.6, rnd: 0.5, pos: false },
+                 5: { top: 20, w: 0.6, rnd: 0.2, pos: false } };
 const AI_LEVELS = ['', '新手', '簡單', '普通', '困難', '大師'];
 const AI_DELAY = 450;   // 電腦每步之間的停頓（毫秒），讓玩家看得清楚
 let aiLevel = 3, aiGen = 0, aiBusy = false, aiPlan = null;
@@ -1140,7 +1147,7 @@ function aiTick() {
 
 // ===== 版本與重新整理 =====
 // 每次更新遊戲都要改 VERSION；頁面會定期抓 GitHub 上的最新檔案比對，有新版就提示
-const VERSION = '2026-10-18.9';
+const VERSION = '2026-10-18.10';
 $('ver').textContent = '版本 ' + VERSION;
 // 重新整理並略過瀏覽器快取（網址加上時間戳記）
 function reloadFresh() {
