@@ -46,7 +46,10 @@ const TYPES = {
   R: { n: ['俥', '車'], hp: 4, dist: 7 * C,   range: 2.6 * C, min: 0,     dmg: 1, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst' },
   N: { n: ['傌', '馬'], hp: 3, dist: 4.5 * C, range: 3.4 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket' },
   C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', indirect: true },
-  P: { n: ['兵', '卒'], hp: 2, dist: 3.5 * C, range: 1.8 * C, min: 0,     dmg: 1, mass: 1,   w: '步槍',   snd: 'rifle',  proj: 'bullet' },
+  P: { n: ['兵', '卒'], hp: 2, dist: 1 * C,   range: 1.8 * C, min: 0,     dmg: 1, mass: 1,   w: '步槍',   snd: 'rifle',  proj: 'bullet', tag: '（未過河）', locked: true },
+  // 過河兵：自由移動，霰彈槍 9 發彈丸呈扇形，越近命中越多（每 3 發 1 心，最多 3 心）
+  P2: { n: ['兵', '卒'], hp: 2, dist: 3.5 * C, range: 2.6 * C, min: 0,    dmg: 3, mass: 1,   w: '霰彈槍', snd: 'shotgun', proj: 'pellets', tag: '（過河）',
+        pellets: 9, cone: 30 * Math.PI / 180 },
 };
 const LAYOUT = [['K',4,9],['R',0,9],['R',8,9],['N',1,9],['N',7,9],['C',1,7],['C',7,7],
                 ['P',0,6],['P',2,6],['P',4,6],['P',6,6],['P',8,6]];
@@ -100,6 +103,9 @@ const SFX = (() => {
     mortar:  () => { tone('sine', 150, 40, 0.25, 0.7); noise(700, 100, 0.25, 0.4); tone('sine', 2300, 650, 0.65, 0.05, 0.15); },
     hit:     () => { tone('square', 320, 80, 0.12, 0.22); noise(3000, 200, 0.15, 0.35); },
     boom:    big => { noise(1800, 50, big ? 1.3 : 0.7, big ? 0.9 : 0.6); tone('sine', 110, 28, big ? 0.9 : 0.5, big ? 0.8 : 0.5); },
+    shotgun: () => { noise(3500, 150, 0.35, 0.85); tone('square', 220, 50, 0.14, 0.3);
+                     noise(2500, 1800, 0.05, 0.25, 0.32, 'bandpass', 3); noise(2000, 1500, 0.06, 0.25, 0.45, 'bandpass', 3); },  // 砰＋上膛
+    promote: () => [392, 523, 659].forEach((f, i) => tone('square', f, f, 0.12, 0.1, i * 0.08)),
     win:     () => [523, 659, 784, 1047].forEach((f, i) => tone('triangle', f, f, i === 3 ? 0.7 : 0.3, 0.25, i * 0.14)),
   };
   return {
@@ -227,8 +233,20 @@ function predict(p, vx, vy) {
   pts.push([q.x, q.y]);
   return pts;
 }
+// 未過河的兵：只能直直往前，且固定走一格（考慮河道摩擦，用二分法求初速）
+const fwd = p => p.s ? 1 : -1;
+const crossed = (s, y) => s ? y > gy(4.5) : y < gy(4.5);
+function speedForOneStep(p) {
+  let lo = 0, hi = 2000;
+  for (let i = 0; i < 18; i++) {
+    const v = (lo + hi) / 2, pts = predict(p, 0, v * fwd(p)), [, ey] = pts[pts.length - 1];
+    if (Math.abs(ey - p.y) < C) lo = v; else hi = v;
+  }
+  return lo;
+}
 function pullInfo() {
   const p = drag.p, dx = p.x - drag.x, dy = p.y - drag.y, len = Math.hypot(dx, dy);
+  if (p.T.locked) return { len, pw: 1, vx: 0, vy: drag.v1 * fwd(p) };
   const pw = Math.min(len, MAXPULL) / MAXPULL;
   const v = Math.sqrt(2 * FR * pw * p.T.dist);
   return { len, pw, vx: len ? dx / len * v : 0, vy: len ? dy / len * v : 0 };
@@ -244,24 +262,55 @@ function blocked(a, b, x, y) {
     return Math.hypot(p.x - (x + t * dx), p.y - (y + t * dy)) < R * 0.9;
   });
 }
-// 回傳 {p, ok, why}：在射程內的敵人與能否射擊
-function scan(a, x = a.x, y = a.y) {
+// 霰彈：從 (x,y) 朝 b 射出扇形彈丸，每發打到射線上第一顆棋子；回傳各彈丸終點與每顆敵人被打幾發
+function shotgunSim(a, b, x = a.x, y = a.y, T = a.T) {
+  const dir = Math.atan2(b.y - y, b.x - x), rays = [], count = new Map();
+  for (let i = 0; i < T.pellets; i++) {
+    const ang = dir + T.cone * (i / (T.pellets - 1) - 0.5), dx = Math.cos(ang), dy = Math.sin(ang);
+    let best = null, bt = T.range;
+    for (const p of alive()) {
+      if (p === a) continue;
+      const ox = p.x - x, oy = p.y - y, t = ox * dx + oy * dy, perp2 = ox * ox + oy * oy - t * t;
+      if (t <= 0 || perp2 > R * R) continue;
+      const th = t - Math.sqrt(R * R - perp2);
+      if (th < bt) { bt = th; best = p; }
+    }
+    rays.push({ dir: ang, x: x + dx * bt, y: y + dy * bt, p: best });
+    if (best && best.s !== a.s) count.set(best, (count.get(best) || 0) + 1);
+  }
+  return { rays, count };
+}
+const pelletDmg = n => n ? Math.max(1, Math.floor(n / 3)) : 0;
+
+// 回傳 {p, ok, why, est}：在射程內的敵人、能否射擊、預估傷害
+function scan(a, x = a.x, y = a.y, T = a.T) {
   return alive().filter(p => p.s !== a.s).map(p => {
     const d = Math.hypot(p.x - x, p.y - y);
-    if (d > a.T.range) return null;
-    if (d < a.T.min) return { p, ok: false, why: '太近' };
-    if (!a.T.indirect && blocked(a, p, x, y)) return { p, ok: false, why: '被擋' };
-    return { p, ok: true };
+    if (d > T.range) return null;
+    if (d < T.min) return { p, ok: false, why: '太近' };
+    if (!T.indirect && blocked(a, p, x, y)) return { p, ok: false, why: '被擋' };
+    return { p, ok: true, est: T.pellets ? pelletDmg(shotgunSim(a, p, x, y, T).count.get(p) || 0) : T.dmg };
   }).filter(Boolean);
+}
+// 兵過河後永久升級成霰彈兵
+function promoteCrossed() {
+  for (const p of alive())
+    if (p.T.locked && crossed(p.s, p.y)) {
+      p.T = TYPES.P2; p.flash = 0.3;
+      fx.push({ k: 'txt', x: p.x, y: p.y - R - 6, txt: '過河！霰彈槍', t: 1.4, T: 1.4, col: '#d48a00' });
+      emit(p.x, p.y, 14, { k: 'spark', sp: 150, life: 0.5, size: 2.5, col: '#ffd23f' });
+      SFX.play('promote');
+    }
 }
 
 // ----- 回合流程 -----
 function onStop() {
+  promoteCrossed();
   if (mover.hp <= 0) { state = 'fire'; timer = 0.6; return; }
   targets = scan(mover);
   if (targets.some(t => t.ok)) {
     state = 'target'; $('skip').disabled = false;
-    setMsg(`點選黃色準星的敵人開火（${mover.T.n[mover.s]}・${mover.T.w}・威力 ${hearts(mover.T.dmg)}），或按「不射擊」。`);
+    setMsg(`點選黃色準星的敵人開火（${mover.T.n[mover.s]}・${mover.T.w}・準星旁為預估傷害），或按「不射擊」。`);
   } else {
     state = 'fire'; timer = 0.9;
     setMsg(targets.length ? '射程內的敵人都被擋住或太近，無法開火。' : '射程內沒有敵人。');
@@ -286,21 +335,33 @@ function shoot(a, b) {
   } else if (T.proj === 'rocket') {
     muzzle(mx, my, dir, true);
     fx.push({ ...base, k: 'rocket', t: 0.45, T: 0.45, done: () => impact(a, b) });
+  } else if (T.proj === 'pellets') {   // 霰彈：扇形彈丸同時飛出
+    muzzle(mx, my, dir, true); shake = Math.max(shake, 3);
+    const { rays, count } = shotgunSim(a, b);
+    fx.push({ k: 'pellets', x1: a.x, y1: a.y, rays, side: a.s, dir, t: 0.14, T: 0.14, done: () => {
+      for (const r of rays) emit(r.x, r.y, 2, { k: 'spark', sp: 120, life: 0.18, size: 2, col: '#ffe066' });
+      if (!count.size) { setMsg('霰彈全被擋下，沒有打中敵人。'); timer = Math.max(timer, 0.6); }
+      const msgs = [];
+      for (const [p, n] of count) msgs.push(impact(a, p, pelletDmg(n), `（中 ${n} 發）`));
+      if (msgs.length) setMsg(`${T.n[a.s]} 霰彈槍：` + msgs.join('；'));
+    } });
   } else {                             // 曲射砲：拋物線飛行
     muzzle(mx, my, dir, true);
     fx.push({ ...base, k: 'shell', t: 0.8, T: 0.8, h: Math.hypot(b.x - a.x, b.y - a.y) * 0.45, done: () => impact(a, b) });
   }
 }
-function impact(a, b) {
+function impact(a, b, dmg = a.T.dmg, note = '') {
   const T = a.T, heavy = T.proj === 'rocket' || T.proj === 'shell';
-  b.hp = Math.max(0, b.hp - T.dmg); b.flash = 0.35;
-  fx.push({ k: 'txt', x: b.x, y: b.y - R, txt: '-' + hearts(T.dmg), t: 1, T: 1 });
+  b.hp = Math.max(0, b.hp - dmg); b.flash = 0.35;
+  fx.push({ k: 'txt', x: b.x, y: b.y - R, txt: '-' + hearts(dmg), t: 1, T: 1 });
   if (b.hp <= 0) { explode(b.x, b.y, true); SFX.play('boom', true); }
   else if (heavy) { explode(b.x, b.y, false); SFX.play('boom', false); }
   else { emit(b.x, b.y, 10, { k: 'spark', sp: 220, life: 0.3, size: 2.5, col: '#ffe066' }); flashAt(b.x, b.y, 18); SFX.play('hit'); shake = Math.max(shake, 2); }
-  setMsg(`${T.n[a.s]} 用${T.w}攻擊 ${b.T.n[b.s]}，打掉 ${hearts(T.dmg)}` + (b.hp <= 0 ? '，擊毀！' : `（剩 ${hearts(b.hp)}）`));
+  const res = `${b.T.n[b.s]}${note}，打掉 ${hearts(dmg)}` + (b.hp <= 0 ? '，擊毀！' : `（剩 ${hearts(b.hp)}）`);
+  setMsg(`${T.n[a.s]} 用${T.w}攻擊 ` + res);
   timer = Math.max(timer, b.hp <= 0 ? 1.2 : 0.8);
   checkWin();
+  return res;
 }
 function checkWin() {
   for (const s of [0, 1])
@@ -356,7 +417,10 @@ cv.addEventListener('pointerdown', e => {
   }
   if (state !== 'aim') return;
   const p = alive().find(p => p.s === turn && Math.hypot(p.x - m.x, p.y - m.y) < R + 6);
-  if (p) { drag = { p, x: m.x, y: m.y, notch: 0 }; cv.setPointerCapture(e.pointerId); SFX.play('click'); }
+  if (p) {
+    drag = { p, x: m.x, y: m.y, notch: 0, v1: p.T.locked ? speedForOneStep(p) : 0 };
+    cv.setPointerCapture(e.pointerId); SFX.play('click');
+  }
 });
 cv.addEventListener('pointermove', e => {
   if (!drag) return;
@@ -421,6 +485,7 @@ function drawPiece(p) {
   circle(0, 0, R - 4); ctx.lineWidth = 1; ctx.stroke();
   ctx.fillStyle = SIDE[p.s].col; ctx.font = 'bold 20px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(p.T.n[p.s], 0, 1);
+  if (p.T === TYPES.P2) { circle(0, 0, R + 2); ctx.strokeStyle = '#e0a800'; ctx.lineWidth = 2; ctx.stroke(); }
   if (p.flash) { circle(0, 0, R); ctx.fillStyle = `rgba(255,255,255,${p.flash * 2})`; ctx.fill(); }
   // 血量愛心：實心＝剩餘，空心＝已失去
   const n = p.T.hp, gap = 9;
@@ -445,6 +510,11 @@ function marks(list) {
       circle(x, y, R + 7 + Math.sin(performance.now() / 120) * 2); ctx.stroke();
       line(x - R - 12, y, x - R - 2, y); line(x + R + 2, y, x + R + 12, y);
       line(x, y - R - 12, x, y - R - 2); line(x, y + R + 2, x, y + R + 12);
+      if (t.est) {   // 預估傷害
+        ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3;
+        ctx.strokeStyle = '#fff'; ctx.strokeText('-' + hearts(t.est), x, y - R - 18);
+        ctx.fillStyle = '#e8202a'; ctx.fillText('-' + hearts(t.est), x, y - R - 18);
+      }
     } else {
       ctx.strokeStyle = '#7778'; ctx.lineWidth = 2; circle(x, y, R + 5); ctx.stroke();
       ctx.fillStyle = '#555'; ctx.font = 'bold 12px sans-serif'; ctx.fillText(t.why, x, y - R - 12);
@@ -485,6 +555,15 @@ function drawParts() {
 function drawProj(f) {
   if (f.delay > 0) return;
   const [x, y, gx0, gy0, k] = projPos(f);
+  if (f.k === 'pellets') {
+    const k = 1 - Math.max(0, f.t) / f.T;
+    for (const r of f.rays) {
+      const x = f.x1 + (r.x - f.x1) * k, y = f.y1 + (r.y - f.y1) * k;
+      ctx.strokeStyle = '#fff7c2'; ctx.lineWidth = 2; line(x - Math.cos(r.dir) * 8, y - Math.sin(r.dir) * 8, x, y);
+      circle(x, y, 1.8); ctx.fillStyle = '#ffd23f'; ctx.fill();
+    }
+    return;
+  }
   if (f.k === 'bullet') {
     const bx = x - Math.cos(f.dir) * 16, by = y - Math.sin(f.dir) * 16;
     ctx.strokeStyle = '#fff7c2'; ctx.lineWidth = 3; line(bx, by, x, y);
@@ -521,10 +600,13 @@ function draw() {
       ctx.strokeStyle = SIDE[p.s].col; ctx.lineWidth = 2; ctx.beginPath();
       pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke();
       circle(ex, ey, R); ctx.stroke();
-      setMsg(`${p.T.n[p.s]}（${p.T.w}）力道 ${Math.round(pw * 100)}%　射程 ${(p.T.range / C).toFixed(1)} 格　威力 ${hearts(p.T.dmg)}`);
-    } else setMsg(`${p.T.n[p.s]}：往後拉移動，或直接放開＝原地射擊`);
-    rangeRing(p, ex, ey);
-    preview = scan(p, ex, ey);
+      if (p.T.locked) setMsg(`${p.T.n[p.s]}未過河：只能往前走一格` + (crossed(p.s, ey) ? '（這步過河，升級霰彈槍！）' : ''));
+      else setMsg(`${p.T.n[p.s]}（${p.T.w}）力道 ${Math.round(pw * 100)}%　射程 ${(p.T.range / C).toFixed(1)} 格　` +
+                  (p.T.pellets ? '越近越痛（最多 ' + hearts(p.T.dmg) + '）' : '威力 ' + hearts(p.T.dmg)));
+    } else setMsg(`${p.T.n[p.s]}：往後拉移動` + (p.T.locked ? '（未過河，只能前進一格）' : '') + '，或直接放開＝原地射擊');
+    const T = p.T.locked && crossed(p.s, ey) ? TYPES.P2 : p.T;   // 這步會過河就用霰彈槍預覽
+    rangeRing({ T }, ex, ey);
+    preview = scan(p, ex, ey, T);
   }
   if (state === 'target') rangeRing(mover, mover.x, mover.y);
   for (const p of alive()) drawPiece(p);
@@ -535,7 +617,7 @@ function draw() {
     const a = f.t / f.T;
     ctx.globalAlpha = Math.min(1, a * 2); ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
     ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.strokeText(f.txt, f.x, f.y - (1 - a) * 30);
-    ctx.fillStyle = '#e00'; ctx.fillText(f.txt, f.x, f.y - (1 - a) * 30);
+    ctx.fillStyle = f.col || '#e00'; ctx.fillText(f.txt, f.x, f.y - (1 - a) * 30);
     ctx.globalAlpha = 1;
   }
   ctx.restore();
@@ -550,9 +632,9 @@ let last = performance.now();
 function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; draw(); requestAnimationFrame(loop); }
 
 $('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動力</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
-  Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${(T.dist / C).toFixed(1)}</td>` +
+  Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${(T.dist / C).toFixed(1)}</td>` +
     `<td>${T.min ? (T.min / C).toFixed(1) + '～' : ''}${(T.range / C).toFixed(1)}</td><td style="color:#e8202a">${hearts(T.dmg)}</td>` +
-    `<td>${T.indirect ? '曲射，越過障礙' : T.palace ? '限九宮' : '直射，會被擋'}</td></tr>`).join('');
+    `<td>${T.indirect ? '曲射，越過障礙' : T.palace ? '限九宮' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛' : '直射，會被擋'}</td></tr>`).join('');
 reset();
 requestAnimationFrame(loop);
 </script>
