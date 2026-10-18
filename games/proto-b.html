@@ -45,7 +45,7 @@
 <header>
   <a href="index.html">← 選單</a>
   <span id="turn"></span>
-  <span><button id="quick" title="快速模式：放開立即出發，不需確認">⚡快速</button> <button id="mute" title="音效開關">🔊</button> <button id="menu" title="對戰模式／重新開始">☰</button></span>
+  <span><button id="quick" title="快速模式：點綠點立即出發，不需確認">⚡快速</button> <button id="mute" title="音效開關">🔊</button> <button id="menu" title="對戰模式／重新開始">☰</button></span>
 </header>
 <div id="bar"><div id="info"></div><button id="fire" hidden>出發</button><button id="skip" disabled>不射擊</button></div>
 <canvas id="cv"></canvas>
@@ -82,9 +82,9 @@ const TYPES = {
   K: { n: ['帥', '將'], hp: 5, dist: 1.5 * C, range: 1.5 * C, min: 0,     dmg: 1, mass: 3,   w: '手槍',   snd: 'pistol', proj: 'bullet', palace: true },
   R: { n: ['俥', '車'], hp: 4, dist: 7 * C,   range: 2.6 * C, min: 0,     dmg: 1, mass: 2,   w: '機槍',   snd: 'mg',     proj: 'burst' },
   N: { n: ['傌', '馬'], hp: 3, dist: 4.5 * C, range: 3.4 * C, min: 0,     dmg: 2, mass: 1.5, w: '火箭',   snd: 'rocket', proj: 'rocket' },
-  C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', indirect: true, reload: 3 },   // 射後需裝填 3 回合
-  // 相／象：治療單位，不能攻擊；每回合開始替半徑內友軍補 ½ 心；過河後每次只能走一格
-  E: { n: ['相', '象'], hp: 3, dist: 3 * C,   range: 0,       min: 0,     dmg: 0, mass: 1.5, w: '治療',   heal: 1.6 * C },
+  C: { n: ['炮', '砲'], hp: 3, dist: 2.5 * C, range: 5.2 * C, min: 2 * C, dmg: 2, mass: 1.5, w: '曲射砲', snd: 'mortar', proj: 'shell', indirect: true, reload: 3, splash: 1.5 * C },   // 射後需裝填 3 回合；周圍一格（含斜角）受一半傷害
+  // 相／象：治療單位，不能攻擊；每回合開始替 2.5 格內友軍補 ½ 心；過河後每次只能走一格
+  E: { n: ['相', '象'], hp: 3, dist: 3 * C,   range: 0,       min: 0,     dmg: 0, mass: 1.5, w: '治療',   heal: 2.5 * C },
   P: { n: ['兵', '卒'], hp: 2, dist: 1 * C,   range: 1.8 * C, min: 0,     dmg: 1, mass: 1,   w: '步槍',   snd: 'rifle',  proj: 'bullet', tag: '（未過河）', locked: true },
   // 過河兵：自由移動，霰彈槍 9 發彈丸呈扇形，越近命中越多（每 3 發 1 心，最多 3 心）
   P2: { n: ['兵', '卒'], hp: 2, dist: 3.5 * C, range: 2.6 * C, min: 0,    dmg: 3, mass: 1,   w: '霰彈槍', snd: 'shotgun', proj: 'pellets', tag: '（過河）',
@@ -93,15 +93,15 @@ const TYPES = {
 const LAYOUT = [['K',4,9],['R',0,9],['R',8,9],['N',1,9],['N',7,9],['E',2,9],['E',6,9],['C',1,7],['C',7,7],
                 ['P',0,6],['P',2,6],['P',4,6],['P',6,6],['P',8,6]];
 
-let pieces, turn, state, drag, mover, timer, fx, winner, targets;
-let moved = false, firedPiece = null, dragging = false;
+let pieces, turn, state, mover, timer, fx, winner, targets;
+let moved = false, firedPiece = null, sel = null;   // moved：本回合已移動；sel：目前選取的棋子 {p, moves 可走的點, dest 目的地, scan 原地可攻擊}
 // 對戰模式：local＝同裝置並排、face＝同裝置面對面（黑方文字倒轉）、online＝兩台裝置連線
 let mode = 'local', mySide = 0, conn = null, pendingEnd = null;
 const online = () => mode === 'online';
 const myTurn = () => !online() || turn === mySide;
 const viewFlip = () => online() && mySide === 1;   // 連線時執黑的一方，棋盤轉 180° 讓自己在下方
 // 文字朝向：讓該方玩家讀起來是正的
-const textAng = side => (viewFlip() ? Math.PI : 0) + (mode === 'face' && side === 1 ? Math.PI : 0);   // dragging：手指正按著拉   // moved：本回合是否已移動（未移動才能取消）
+const textAng = side => (viewFlip() ? Math.PI : 0) + (mode === 'face' && side === 1 ? Math.PI : 0);
 const $ = id => document.getElementById(id);
 const alive = () => pieces.filter(p => p.hp > 0);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -140,7 +140,6 @@ const SFX = (() => {
   }
   const S = {
     click:   () => tone('square', 1000, 700, 0.04, 0.08),
-    ratchet: k => tone('square', 260 + k * 520, 180 + k * 400, 0.025, 0.07),
     launch:  k => { noise(500, 3500, 0.35, 0.2 + 0.25 * k, 0, 'bandpass', 2); tone('sawtooth', 110, 140 + 320 * k, 0.4, 0.06); },
     bump:    v => { const k = Math.min(1, v / 600); tone('sine', 190, 55, 0.16, 0.45 * k); noise(2200, 300, 0.08, 0.3 * k); },
     pistol:  () => { noise(4000, 400, 0.12, 0.5); tone('square', 650, 120, 0.08, 0.14); },
@@ -219,7 +218,7 @@ function reset() {
       const T = TYPES[t];
       pieces.push({ s, t, T, x: gx(c), y: gy(s ? 9 - r : r), vx: 0, vy: 0, hp: T.hp, hd: s ? Math.PI / 2 : -Math.PI / 2, flash: 0, recoil: 0, cd: 0 });
     }
-  turn = 0; state = 'aim'; drag = null; dragging = false; fx = []; moved = false; firedPiece = null; winner = null; targets = []; parts = []; decals = []; shake = 0;
+  turn = 0; state = 'aim'; sel = null; fx = []; moved = false; firedPiece = null; winner = null; targets = []; parts = []; decals = []; shake = 0;
   updateHeader(); $('skip').disabled = true;
   setMsg('拉動己方棋子移動（輕點＝原地不動），停下後點選要攻擊的敵人。');
 }
@@ -254,19 +253,6 @@ function moveOne(p, dt) {
   if (p.y > y1) { p.y = y1; bump = Math.max(bump, Math.abs(p.vy)); p.vy = -p.vy * 0.6; }
   return bump;
 }
-function collide(a, b) {
-  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
-  if (d >= 2 * R || d === 0) return;
-  const nx = dx / d, ny = dy / d, ma = a.T.mass, mb = b.T.mass, ov = 2 * R - d;
-  a.x -= nx * ov * mb / (ma + mb); a.y -= ny * ov * mb / (ma + mb);
-  b.x += nx * ov * ma / (ma + mb); b.y += ny * ov * ma / (ma + mb);
-  const vn = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
-  if (vn <= 0) return;
-  const j = (1 + E) * vn / (1 / ma + 1 / mb);
-  a.vx -= j / ma * nx; a.vy -= j / ma * ny;
-  b.vx += j / mb * nx; b.vy += j / mb * ny;
-  if (vn > 80) bumpFX(a.x + nx * R, a.y + ny * R, vn);
-}
 function physics(dt) {
   const ps = alive();
   for (const p of ps) {
@@ -277,14 +263,6 @@ function physics(dt) {
       emit(p.x - Math.cos(p.hd) * R, p.y - Math.sin(p.hd) * R, 1,
            { k: 'smoke', sp: 30, life: 0.6, size: 7, col: inRiver(p) ? '#9cc3d5' : '#b89a6a', dir: p.hd + Math.PI, spread: 1.5 });
   }
-  for (let i = 0; i < ps.length; i++)
-    for (let j = i + 1; j < ps.length; j++) collide(ps[i], ps[j]);
-}
-function predict(p, vx, vy) {
-  const q = { x: p.x, y: p.y, vx, vy, T: p.T, s: p.s }, pts = [[q.x, q.y]];
-  for (let i = 0; i < 600 && (q.vx || q.vy); i++) { moveOne(q, 1 / 120); if (i % 4 === 0) pts.push([q.x, q.y]); }
-  pts.push([q.x, q.y]);
-  return pts;
 }
 // ----- 定點移動：每次移動都停在棋盤交叉點上 -----
 const fwd = p => p.s ? 1 : -1;
@@ -302,24 +280,22 @@ function pointsFor(p) {
     }
   return pts;
 }
-// 依拉動方向與力道決定目的交叉點；力道不足或超出棋盤回傳 null
-function moveTarget(p, dx, dy, len) {
-  if (len < TAP) return null;
-  const onBoard = (x, y) => pointsFor(p).some(([px, py]) => Math.abs(px - x) < 1 && Math.abs(py - y) < 1);
-  if (oneStep(p)) {
-    const [sx, sy] = p.T.locked ? [0, fwd(p)] : Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)];
-    const x = p.x + sx * C, y = p.y + sy * C;
-    return onBoard(x, y) ? [x, y] : null;
-  }
-  const pw = Math.min(len, MAXPULL) / MAXPULL, lx = p.x + dx / len * pw * p.T.dist, ly = p.y + dy / len * pw * p.T.dist;
-  if (Math.hypot(lx - p.x, ly - p.y) < C * 0.5) return null;   // 力道太小，停不到下一個點
-  let best = null, bd = Infinity;
-  for (const [x, y] of pointsFor(p)) {
-    if (Math.hypot(x - p.x, y - p.y) < C * 0.5) continue;
-    const d = Math.hypot(x - lx, y - ly);
-    if (d < bd) { bd = d; best = [x, y]; }
-  }
-  return best;
+// 可以走的點：空的交叉點、在移動力範圍內、直線路徑不穿過其他棋子（不會撞開別人）
+function pathClear(p, x, y) {
+  const dx = x - p.x, dy = y - p.y, d2 = dx * dx + dy * dy;
+  return alive().every(q => {
+    if (q === p) return true;
+    const t = Math.max(0, Math.min(1, ((q.x - p.x) * dx + (q.y - p.y) * dy) / d2));
+    return Math.hypot(q.x - (p.x + t * dx), q.y - (p.y + t * dy)) >= R * 1.8;
+  });
+}
+function movesFor(p) {
+  const pts = pointsFor(p), at = (x, y) => ([qx, qy]) => Math.abs(qx - x) < 1 && Math.abs(qy - y) < 1;
+  let cand;
+  if (oneStep(p)) cand = (p.T.locked ? [[0, fwd(p)]] : [[1, 0], [-1, 0], [0, 1], [0, -1]])
+                         .map(([sx, sy]) => [p.x + sx * C, p.y + sy * C]).filter(([x, y]) => pts.some(at(x, y)));
+  else cand = pts.filter(([x, y]) => { const d = Math.hypot(x - p.x, y - p.y); return d > 1 && d <= p.T.dist + 1; });
+  return cand.filter(([x, y]) => !alive().some(q => at(x, y)([q.x, q.y])) && pathClear(p, x, y));
 }
 // 以初速 v 沿 (ux,uy) 直線滑行的距離（含河道摩擦、不考慮邊界反彈）
 function travel(p, ux, uy, v) {
@@ -340,23 +316,7 @@ function speedFor(p, ux, uy, d) {
   }
   return (lo + hi) / 2;
 }
-// 拉動向量 = 按下點 − 目前手指位置（從棋子哪裡按下都一樣，輕碰不會變成拉動）
-const TAP = 16;   // 小於這個距離都算「輕點」
-function pullInfo() {
-  const p = drag.p, dx = drag.sx - drag.x, dy = drag.sy - drag.y, len = Math.hypot(dx, dy);
-  const pw = Math.min(len, MAXPULL) / MAXPULL, tg = moveTarget(p, dx, dy, len);
-  let vx = 0, vy = 0;
-  if (tg) {
-    const key = tg.join();
-    if (drag.key !== key) {   // 目的點變了才重算初速
-      const ex = tg[0] - p.x, ey = tg[1] - p.y, d = Math.hypot(ex, ey), v = speedFor(p, ex / d, ey / d, d);
-      drag.key = key; drag.v = [ex / d * v, ey / d * v];
-    }
-    [vx, vy] = drag.v;
-  }
-  return { len, dx, dy, pw, vx, vy, tg };
-}
-// 碰撞後所有棋子吸附到最近的空交叉點（近的先選）
+// 停下後所有棋子對齊到最近的空交叉點（近的先選）
 function snapTargets() {
   const ps = alive(), taken = new Set(), res = new Map();
   const near = p => Math.min(...pointsFor(p).map(([x, y]) => Math.hypot(x - p.x, y - p.y)));
@@ -454,8 +414,8 @@ function healFX(q) {
 const reloadMsg = p => `${p.T.n[p.s]}裝填中，還要 ${p.cd} 回合才能再射擊。`;
 function setSkip(on) {
   $('skip').disabled = !on;
-  $('skip').textContent = moved ? '不射擊' : '取消';
-  $('fire').hidden = state !== 'armed';
+  $('skip').textContent = state === 'target' && moved ? '不射擊' : '取消';
+  $('fire').hidden = !(state === 'select' && sel && sel.dest);
 }
 function onStop() {
   promoteCrossed();
@@ -468,7 +428,7 @@ function onStop() {
            (moved ? '或按「不射擊」。' : '或按「取消」／點其他己方棋子改操作。'));
   } else if (!moved) {   // 原地選取但沒東西可打：不浪費回合，回到選棋
     const p = mover;
-    cancelSelect((p.T.heal ? `${p.T.n[p.s]}不會攻擊，每回合替周圍友軍補 ½ 心。` : p.cd > 0 && targets.length ? reloadMsg(p) : '射程內沒有可攻擊的敵人，') + '請拉動移動或換別的棋子。');
+    cancelSelect((p.T.heal ? `${p.T.n[p.s]}不會攻擊，每回合替周圍友軍補 ½ 心。` : p.cd > 0 && targets.length ? reloadMsg(p) : '射程內沒有可攻擊的敵人，') + '請選擇移動位置或換別的棋子。');
   } else {
     state = 'fire'; timer = 0.9;
     setMsg(mover.T.heal ? `${mover.T.n[mover.s]}就定位，下回合開始替周圍友軍補血。` : mover.cd > 0 && targets.length ? reloadMsg(mover)
@@ -522,7 +482,12 @@ function impact(a, b, dmg = a.T.dmg, note = '') {
   else if (heavy) { explode(b.x, b.y, false); SFX.play('boom', false); }
   else { emit(b.x, b.y, 10, { k: 'spark', sp: 220, life: 0.3, size: 2.5, col: '#ffe066' }); flashAt(b.x, b.y, 18); SFX.play('hit'); shake = Math.max(shake, 2); }
   const res = `${b.T.n[b.s]}${note}，打掉 ${hearts(dmg)}` + (b.hp <= 0 ? '，擊毀！' : `（剩 ${hearts(b.hp)}）`);
-  setMsg(`${T.n[a.s]} 用${T.w}攻擊 ` + res);
+  const all = [res];
+  if (T.splash && !note.includes('波及')) {   // 炮：落點周圍一格（含斜角）的棋子受一半傷害，敵我不分
+    parts.push({ x: b.x, y: b.y, vx: 0, vy: 0, t: 0.45, L: 0.45, size: T.splash, k: 'ring', drag: 0 });
+    for (const q of alive()) if (q !== b && Math.hypot(q.x - b.x, q.y - b.y) <= T.splash + 1) all.push(impact(a, q, T.dmg / 2, '（波及）'));
+  }
+  if (!note.includes('波及')) setMsg(`${T.n[a.s]} 用${T.w}攻擊 ` + all.join('；'));
   timer = Math.max(timer, b.hp <= 0 ? 1.2 : 0.8);
   checkWin();
   return res;
@@ -585,95 +550,78 @@ function pos(e) {
   const x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
   return viewFlip() ? { x: W - x, y: H - y } : { x, y };
 }
+// 點選己方棋子 → 綠點＝可走的位置、黃色準星＝原地可攻擊的敵人
+function selectPiece(p) {
+  const sc = scan(p);
+  sel = { p, moves: movesFor(p), dest: null, scan: sc };
+  state = 'select'; setSkip(true); SFX.play('click');
+  const atk = sc.some(t => t.ok), nm = p.T.n[p.s];
+  setMsg(!sel.moves.length && !atk ? `${nm}沒有可走的位置，也沒有可攻擊的目標，請換別的棋子。`
+    : `${nm}：` + (sel.moves.length ? '點綠點移動' + (oneStep(p) ? '（每次只能走一格）' : '') : '沒有可走的位置') +
+      (atk ? '，或點黃色準星原地攻擊' : '') + '；點別處取消。' +
+      (p.T.heal ? `（每回合替綠圈內友軍補 ½ 心）` : p.cd > 0 ? `（裝填中還要 ${p.cd} 回合）` : ''));
+}
+function cancelSel(msg = '已取消，請重新選擇棋子。') {
+  sel = null; state = 'aim'; setSkip(false); setMsg(msg);
+}
+const destMsg = () => '已選目的地：按「出發」或再點一次目的地出發；點其他綠點可改；點別處取消。';
+// 出發：算出剛好停在目的地的初速，車子直線開過去
+function go([x, y]) {
+  const p = sel.p, ex = x - p.x, ey = y - p.y, d = Math.hypot(ex, ey), v = speedFor(p, ex / d, ey / d, d);
+  sel = null; mover = p; moved = true;
+  p.vx = ex / d * v; p.vy = ey / d * v; p.hd = Math.atan2(ey, ex);
+  SFX.play('launch', Math.min(1, d / (5 * C)));
+  emit(p.x - Math.cos(p.hd) * R, p.y - Math.sin(p.hd) * R, 6, { k: 'smoke', sp: 70, life: 0.6, size: 8, col: '#b89a6a', dir: p.hd + Math.PI, spread: 1.4 });
+  state = 'moving'; setSkip(false);
+  send({ t: 'launch', i: pieces.indexOf(p), vx: p.vx, vy: p.vy });
+}
+function fireAt(b) {
+  send({ t: 'shoot', a: pieces.indexOf(mover), b: pieces.indexOf(b), snap: snapshot() });
+  targets = []; state = 'fire'; timer = 0.5; setSkip(false); shoot(mover, b);
+}
 cv.addEventListener('pointerdown', e => {
-  const m = pos(e);
+  const m = pos(e), near = (x, y, r = R + 6) => Math.hypot(x - m.x, y - m.y) < r;
   SFX.init();
   if (state === 'over') { restart(); return; }
   if (!myTurn()) { setMsg('還沒輪到你，等待對手操作…'); return; }
-  if (state === 'target') {
-    const t = targets.find(t => t.ok && Math.hypot(t.p.x - m.x, t.p.y - m.y) < R + 8);
-    if (t) {
-      send({ t: 'shoot', a: pieces.indexOf(mover), b: pieces.indexOf(t.p), snap: snapshot() });
-      targets = []; setSkip(false); state = 'fire'; timer = 0.5; shoot(mover, t.p); return;
-    }
-    if (moved) return;
-    cancelSelect();          // 還沒移動：點別處＝取消；點己方棋子＝直接改操作它
-  }
-  const p = alive().find(p => p.s === turn && Math.hypot(p.x - m.x, p.y - m.y) < R + 6);
-  if (state === 'armed') {
-    if (p === drag.p) {      // 再按同一顆：輕點＝出發，拖曳＝重新調整
-      drag.prev = { sx: drag.sx, sy: drag.sy, x: drag.x, y: drag.y };
-      Object.assign(drag, { sx: m.x, sy: m.y, x: m.x, y: m.y, notch: 0 });
-      dragging = true; cv.setPointerCapture(e.pointerId);
-      return;
-    }
-    cancelArmed();           // 點空白＝取消；點其他己方棋子＝改拉那顆
-  }
-  if (state !== 'aim' || !p) return;
-  drag = { p, sx: m.x, sy: m.y, x: m.x, y: m.y, notch: 0 };
-  dragging = true; cv.setPointerCapture(e.pointerId); SFX.play('click');
-});
-cv.addEventListener('pointermove', e => {
-  if (!dragging) return;
-  Object.assign(drag, pos(e));
-  const { len, pw } = pullInfo(), notch = Math.floor(Math.min(len, MAXPULL) / 12);   // 拉動時的齒輪聲
-  if (notch !== drag.notch) { SFX.play('ratchet', pw); drag.notch = notch; }
-});
-cv.addEventListener('pointerup', () => {
-  if (!dragging) return;
-  dragging = false;
-  const { len, tg } = pullInfo();
-  if (drag.prev) {           // 已瞄準狀態下再按同一顆
-    if (len < TAP) { Object.assign(drag, drag.prev); launch(); }
-    else if (!tg) { Object.assign(drag, drag.prev); drag.prev = null; setMsg('這個方向走不了，保留原本的路線。' + armedMsg()); }
-    else { drag.prev = null; setMsg(armedMsg()); }
+  if (state === 'target') {   // 移動後：點準星開火，或按「不射擊」
+    const t = targets.find(t => t.ok && near(t.p.x, t.p.y, R + 8));
+    if (t) fireAt(t.p);
     return;
   }
-  if (len < TAP) {           // 輕點（或拉回原處放開）：原地瞄準，可取消
-    mover = drag.p; drag = null; moved = false; onStop(); return;
+  const own = alive().find(q => q.s === turn && near(q.x, q.y));
+  if (state === 'select') {
+    const p = sel.p;
+    const t = !sel.dest && sel.scan.find(t => t.ok && near(t.p.x, t.p.y, R + 8));
+    if (t) { mover = p; moved = false; sel = null; fireAt(t.p); return; }   // 原地開火
+    const mv = sel.moves.find(([x, y]) => near(x, y, C * 0.45));
+    if (mv) {
+      if (quick || sel.dest === mv) { go(mv); return; }
+      sel.dest = mv; setSkip(true); setMsg(destMsg()); SFX.play('click'); return;
+    }
+    if (own === p) { if (sel.dest) go(sel.dest); return; }
+    if (own) { selectPiece(own); return; }
+    cancelSel(); return;
   }
-  if (!tg) { drag = null; setMsg('力道太小或超出棋盤，沒有可停的交叉點。'); return; }
-  if (quick) { launch(); return; }  // 快速模式：放開立即出發
-  state = 'armed'; setSkip(true);   // 一般模式：放開後先不動，等確認
-  setMsg(armedMsg());
+  if (state === 'aim' && own) selectPiece(own);
 });
-const armedMsg = () => '路線已設定：按「出發」或再點一下棋子出發；拖曳棋子可重新調整；點空白處／「取消」／Esc 取消。';
-function cancelArmed(msg = '已取消，請重新選擇棋子。') {
-  drag = null; dragging = false; state = 'aim'; setSkip(false); setMsg(msg);
-}
-function launch() {
-  const { pw, vx, vy } = pullInfo(), p = drag.p;
-  drag = null; mover = p; moved = true;
-  p.vx = vx; p.vy = vy; p.hd = Math.atan2(vy, vx);
-  SFX.play('launch', pw);
-  emit(p.x - Math.cos(p.hd) * R, p.y - Math.sin(p.hd) * R, 6, { k: 'smoke', sp: 70, life: 0.6, size: 8, col: '#b89a6a', dir: p.hd + Math.PI, spread: 1.4 });
-  state = 'moving'; setSkip(false);
-  send({ t: 'launch', i: pieces.indexOf(p), vx, vy });
-}
-$('fire').onclick = () => { if (state === 'armed') launch(); };
+$('fire').onclick = () => { if (state === 'select' && sel.dest) go(sel.dest); };
 $('skip').onclick = () => {
-  if (state === 'armed') { cancelArmed(); return; }
+  if (state === 'select') { cancelSel(); return; }
   if (state !== 'target') return;
   if (!moved) { cancelSelect(); return; }
-  targets = []; setSkip(false); state = 'fire'; timer = 0.2;
+  targets = []; state = 'fire'; timer = 0.2; setSkip(false);
 };
-// Esc：取消拉動中或原地選取
+// Esc：取消選取；Enter：出發
 addEventListener('keydown', e => {
-  if (e.key === 'Enter' && state === 'armed' && !dragging) { launch(); return; }
-  if (e.key !== 'Escape') return;
-  if (state === 'armed') cancelArmed();
-  else if (drag) { drag = null; dragging = false; setMsg('已取消拉動。'); }
-  else if (state === 'target' && !moved) cancelSelect();
-});
-cv.addEventListener('pointercancel', () => {
-  dragging = false;
-  if (state === 'armed') { if (drag.prev) { Object.assign(drag, drag.prev); drag.prev = null; } }
-  else drag = null;
+  if (e.key === 'Enter' && state === 'select' && sel.dest) go(sel.dest);
+  else if (e.key === 'Escape' && state === 'select') cancelSel();
+  else if (e.key === 'Escape' && state === 'target' && !moved) cancelSelect();
 });
 
 $('mute').textContent = SFX.muted ? '🔇' : '🔊';
 $('mute').onclick = () => { SFX.init(); $('mute').textContent = SFX.toggle() ? '🔇' : '🔊'; };
-// 快速模式：放開立即出發（不需確認），記在瀏覽器
+// 快速模式：點綠點立即出發（不需確認），記在瀏覽器
 let quick = false;
 try { quick = localStorage.getItem('rc-quick') === '1'; } catch (e) {}
 function showQuick() { $('quick').classList.toggle('on', quick); $('quick').textContent = quick ? '⚡快速✓' : '⚡快速'; }
@@ -681,8 +629,7 @@ showQuick();
 $('quick').onclick = () => {
   quick = !quick; showQuick();
   try { localStorage.setItem('rc-quick', quick ? '1' : '0'); } catch (e) {}
-  if (quick && state === 'armed') setMsg(armedMsg());
-  else setMsg(quick ? '⚡快速模式：放開立即出發。' : '一般模式：放開後按「出發」才會移動。');
+  setMsg(quick ? '⚡快速模式：點綠點立即出發。' : '一般模式：點綠點後再按「出發」（或再點一次）才會移動。');
 };
 
 // ----- 繪圖 -----
@@ -761,9 +708,14 @@ function rangeRing(p, x, y) {
   if (p.T.min) { circle(x, y, p.T.min); ctx.strokeStyle = '#5558'; ctx.stroke(); }
   ctx.setLineDash([]);
 }
-function marks(list) {
+function marks(list, T, ghost) {
   for (const t of list) {
     const { x, y } = t.p;
+    ctx.globalAlpha = ghost ? 0.5 : 1;
+    if (t.ok && T && T.splash) {   // 炮的爆炸範圍
+      circle(x, y, T.splash); ctx.fillStyle = '#e67e2214'; ctx.fill();
+      ctx.strokeStyle = '#e67e2288'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
+    }
     if (t.ok) {
       ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 3;
       circle(x, y, R + 7 + Math.sin(performance.now() / 120) * 2); ctx.stroke();
@@ -778,6 +730,7 @@ function marks(list) {
       ctx.font = 'bold 12px sans-serif'; textAt(t.why, x, y, -R - 12, textAng(turn), '#555');
     }
   }
+  ctx.globalAlpha = 1;
 }
 function drawDecals() {   // 地上的焦痕
   for (const d of decals) {
@@ -849,35 +802,32 @@ function draw() {
   // 交叉點標記（可停的定點）與相的治療範圍
   ctx.fillStyle = '#6b442355';
   for (let c = 0; c <= 8; c++) for (let r = 0; r <= 9; r++) { circle(gx(c), gy(r), 2.5); ctx.fill(); }
-  for (const h of alive()) if (h.T.heal && !(drag && drag.p === h)) {
+  for (const h of alive()) if (h.T.heal && !(sel && sel.p === h)) {
     circle(h.x, h.y, h.T.heal); ctx.strokeStyle = h.s ? '#1e9e4a40' : '#1e9e4a55'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 5]); ctx.stroke(); ctx.setLineDash([]);
   }
   if (state === 'aim') for (const p of alive()) if (p.s === turn) {
     circle(p.x, p.y, R + 5); ctx.strokeStyle = turn ? '#0005' : '#c0392b66'; ctx.lineWidth = 3; ctx.stroke();
   }
   let preview = [];
-  if (drag) {
-    const p = drag.p, { len, pw, dx, dy, tg } = pullInfo();
-    ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); line(p.x, p.y, p.x - dx, p.y - dy); ctx.setLineDash([]);
+  let markT = state === 'target' && mover ? mover.T : null, ghost = false;
+  if (sel) {
+    const p = sel.p;
+    circle(p.x, p.y, R + 6); ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 3; ctx.stroke();
     let ex = p.x, ey = p.y;
-    if (state === 'armed') { circle(p.x, p.y, R + 6); ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 3; ctx.stroke(); }
-    if (tg) {
-      [ex, ey] = tg;
-      ctx.strokeStyle = SIDE[p.s].col; ctx.lineWidth = 2; line(p.x, p.y, ex, ey);
+    if (sel.dest) {
+      [ex, ey] = sel.dest;
+      ctx.strokeStyle = SIDE[p.s].col; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); line(p.x, p.y, ex, ey); ctx.setLineDash([]);
       circle(ex, ey, R); ctx.stroke();
-      ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 2.5; line(ex - 7, ey, ex + 7, ey); line(ex, ey - 7, ex, ey + 7);   // 目的交叉點
-      const step = oneStep(p) ? '（每次只能走一格）' : '';
-      if (!dragging) { /* 已瞄準：保留確認說明 */ }
-      else if (p.T.locked) setMsg(`${p.T.n[p.s]}未過河：只能往前走一格` + (crossed(p.s, ey) ? '（這步過河，升級霰彈槍！）' : ''));
-      else if (p.T.heal) setMsg(`${p.T.n[p.s]}（治療）${step}每回合替綠圈內友軍補 ½ 心` + (!oneStep(p) && crossed(p.s, ey) ? '　⚠ 過河後每次只能走一格' : ''));
-      else setMsg(`${p.T.n[p.s]}（${p.T.w}）力道 ${Math.round(pw * 100)}%　射程 ${(p.T.range / C).toFixed(1)} 格　` +
-                  (p.T.pellets ? '越近越痛（最多 ' + hearts(p.T.dmg) + '）' : '威力 ' + hearts(p.T.dmg)));
-    } else if (dragging && len >= TAP) setMsg('力道太小或超出棋盤，沒有可停的交叉點。');
-    else if (dragging) setMsg(`${p.T.n[p.s]}：往後拉移動` + (p.T.locked ? '（未過河，只能前進一格）' : '') + (quick ? '；⚡快速模式：放開立即出發' : '；放開後還要確認才會出發') + '，拉回原處放開＝原地瞄準' +
-                  (p.cd > 0 ? `　⚠ 裝填中還要 ${p.cd} 回合` : ''));
+    }
     const T = p.T.locked && crossed(p.s, ey) ? TYPES.P2 : p.T;   // 這步會過河就用霰彈槍預覽
     rangeRing({ T }, ex, ey);
-    preview = scan(p, ex, ey, T);
+    for (const [x, y] of sel.moves) {   // 可走的點
+      const on = sel.dest && sel.dest[0] === x && sel.dest[1] === y;
+      circle(x, y, on ? 11 : 8); ctx.fillStyle = on ? '#ffd400' : '#2ecc71cc'; ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    }
+    // 未選目的地：顯示原地可攻擊的目標；已選：預覽到目的地後可打到誰（淡色）
+    preview = sel.dest ? scan(p, ex, ey, T) : sel.scan; markT = T; ghost = !!sel.dest;
     if (p.T.heal) for (const q of alive())   // 預覽：哪些友軍會被補到
       if (q !== p && q.s === p.s && Math.hypot(q.x - ex, q.y - ey) <= p.T.heal + 1) {
         circle(q.x, q.y, R + 5); ctx.strokeStyle = q.hp < q.T.hp ? '#1e9e4a' : '#1e9e4a55'; ctx.lineWidth = 3; ctx.stroke();
@@ -888,7 +838,7 @@ function draw() {
     if (!moved) { circle(mover.x, mover.y, R + 6); ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 3; ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]); }
   }
   for (const p of alive()) drawPiece(p);
-  marks(state === 'target' ? targets : preview);
+  marks(state === 'target' ? targets : preview, markT, ghost);
   for (const f of fx) if (f.k !== 'txt') drawProj(f);
   drawParts();
   for (const f of fx) if (f.k === 'txt') {
@@ -915,10 +865,10 @@ function draw() {
 let last = performance.now();
 function loop(now) { update(Math.min(0.05, (now - last) / 1000)); last = now; draw(); requestAnimationFrame(loop); }
 
-$('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動力</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
+$('legend').innerHTML = '<tr><th>兵種</th><th>武器</th><th>血量</th><th>移動(格)</th><th>射程(格)</th><th>威力</th><th>特性</th></tr>' +
   Object.values(TYPES).map(T => `<tr><td>${T.n.join('/')}${T.tag || ''}</td><td>${T.w}</td><td style="color:#e8202a">${hearts(T.hp)}</td><td>${(T.dist / C).toFixed(1)}</td>` +
     `<td>${T.heal ? '治療 ' + (T.heal / C).toFixed(1) : (T.min ? (T.min / C).toFixed(1) + '～' : '') + (T.range / C).toFixed(1)}</td><td style="color:#e8202a">${T.heal ? '<span style="color:#2ecc71">+½</span>' : hearts(T.dmg)}</td>` +
-    `<td>${T.indirect ? `曲射，越過障礙；射後裝填 ${T.reload} 回合` : T.palace ? '限九宮' : T.heal ? '不能攻擊；每回合替範圍內友軍補 ½ 心；過河後每次只能走一格' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛' : '直射，會被擋'}</td></tr>`).join('');
+    `<td>${T.indirect ? `曲射，越過障礙；周圍一格受一半傷害（敵我皆傷）；射後裝填 ${T.reload} 回合` : T.palace ? '限九宮' : T.heal ? '不能攻擊；每回合替範圍內友軍補 ½ 心；過河後每次只能走一格' : T.locked ? '只能前進一格' : T.pellets ? '扇形霰彈，越近越痛' : '直射，會被擋'}</td></tr>`).join('');
 // ===== 對戰模式與連線 =====
 // 連線做法：輪到誰，誰的裝置就是「主控」——它算物理、把動作（出發／開火）送給對方播放動畫，
 // 回合結束時送出完整局面快照，對方直接套用，兩台裝置就不會因浮點誤差而越跑越不同步。
@@ -940,7 +890,7 @@ function applyEnd() {
   let healed = false;   // 對方送來的補血也播特效
   pieces.forEach((p, i) => { if (p.hp > 0 && p.hp > before[i]) { healFX(p); healed = true; } });
   if (healed) SFX.play('heal');
-  targets = []; moved = false; drag = null; setSkip(false);
+  targets = []; moved = false; sel = null; setSkip(false);
   if (winner !== null) { state = 'over'; SFX.play('win'); }
   else { state = 'aim'; setMsg(myTurn() ? '輪到你了！拉動己方棋子移動，停下後點選要攻擊的敵人。' : '等待對手操作…'); }
   updateHeader();
