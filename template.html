@@ -38,6 +38,9 @@
   #amsg.ok { color:#2c7a3f; } #amsg.bad { color:#c00; } #amsg { color:#888; }
   .rm { border:none; background:none; color:#bbb; cursor:pointer; padding:0 2px; font-size:12px; }
   .rm:hover { color:#c00; }
+  /* 名稱最寬 9 個中文字；超過的縮小一級（.sm），再放不下就以 … 結尾 */
+  .nm { display:inline-block; max-width:9em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
+  .nm.sm { font-size:.86em; max-width:calc(9em / .86); }
   .tag { margin-left:6px; font-size:11px; color:#2c7a3f; border:1px solid #2c7a3f; border-radius:3px; padding:0 3px; }
   table { border-collapse:collapse; white-space:nowrap; }
   th, td { border:1px solid var(--bd); padding:3px 8px; }
@@ -304,6 +307,16 @@ function head() {
     `<tr class="cols"><th><input type="checkbox" id="pickAll" title="全選/全不選" ${allOn ? 'checked' : ''}></th>${th}</tr>`;
 }
 
+// 名稱是否放得進 9 個中文字的寬度（依實際字型量測，結果快取）
+const nameCtx = document.createElement('canvas').getContext('2d'), nameFit = {};
+function nameFits(t) {
+  if (!(t in nameFit)) {
+    const cs = getComputedStyle(document.body);
+    nameCtx.font = `${cs.fontSize} ${cs.fontFamily}`;
+    nameFit[t] = nameCtx.measureText(t).width <= nameCtx.measureText('國'.repeat(9)).width + 0.5;
+  }
+  return nameFit[t];
+}
 function cell(c, r) {
   const v = c.get(r);
   switch (c.k) {
@@ -311,7 +324,8 @@ function cell(c, r) {
     case '類': return `<td class="c t-${r.類}">${r.類}</td>`;
     case '除息': return `<td class="c div">${r.除息 || ''}</td>`;
     case '代碼': return `<td>${esc(v.text)}</td>`;
-    case '名稱': return `<td>${esc(v.text)}${r.custom ? '<span class="tag">自訂</span>' : ''}</td>`;
+    case '名稱': return `<td title="${esc(v.text)}"><span class="nm${nameFits(v.text) ? '' : ' sm'}">${esc(v.text)}</span>` +
+      `${r.custom ? '<span class="tag">自訂</span>' : ''}</td>`;
     case 'price': return `<td class="r">${r.error ? '' : v.text}</td>`;
     case 'chg': return `<td class="r ${r.chg < 0 ? 'neg' : 'pos'}">${r.chg == null ? '' : v.text}</td>`;
   }
@@ -507,8 +521,14 @@ async function exportImage() {
     const lbl = c.querySelector('.lbl');
     const lines = lbl ? lbl.innerHTML.split('<br>').map(s => s.replace(/<[^>]*>/g, '')) :
       [[...c.childNodes].filter(n => n.nodeType === 3 || !n.classList?.contains('tag')).map(n => n.textContent).join('')];
-    const tc = lbl ? getComputedStyle(lbl) : cs;
+    const nm = c.querySelector('.nm');
+    const tc = lbl ? getComputedStyle(lbl) : nm ? getComputedStyle(nm) : cs;
     g.font = font(tc); g.fillStyle = tc.color;
+    if (nm && nm.scrollWidth > nm.clientWidth) {   // 名稱被截斷：圖片上同樣以 … 結尾
+      let t = lines[0];
+      while (t.length > 1 && g.measureText(t + '…').width > nm.clientWidth) t = t.slice(0, -1);
+      lines[0] = t + '…';
+    }
     const al = lbl || cs.textAlign === 'center' ? 'center' : cs.textAlign === 'right' ? 'right' : 'left';
     g.textAlign = al;
     const tx = al === 'center' ? x + w / 2 : al === 'right' ? x + w - parseFloat(cs.paddingRight) : x + parseFloat(cs.paddingLeft);
