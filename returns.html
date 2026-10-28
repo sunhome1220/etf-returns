@@ -223,10 +223,12 @@ const fmtNum = v => v >= 10000 ? v.toLocaleString('en-US', {minimumFractionDigit
 const fmtPct = v => v.toFixed(S.dec) + '%';
 
 const pickV = x => S.calc === 'simple' && x.s != null ? x.s : x.v;   // 指數等沒有 s 的沿用 v
+// 成立前的年度：前一年寫「2025年成立」、更早寫「尚未成立」（舊格式「25年5月成立」「-未成立」一併轉換）
+const noteText = n => n === '-未成立' ? '尚未成立' : n.replace(/^(\d{2})年\d+月成立$/, '20$1年成立');
 function yearValue(r, y) {
   const x = r.returns && r.returns[y];
   if (!x) return {sort:null, text:'(空白)'};
-  if (x.note) return {sort:null, text:x.note};
+  if (x.note) return {sort:null, text:noteText(x.note)};
   const v = pickV(x);
   return {sort:v, text:fmtPct(v), partial:x.partial};
 }
@@ -744,8 +746,8 @@ async function analyzeJS(it) {
   for (const y of [years[0], ...missing]) {
     const end = lastAdj(y), prv = lastAdj(y - 1);
     if (end == null) {
-      if (listed && listed.y === y + 1) out.returns[y] = {note:`${listed.y % 100}年${listed.m}月成立`};
-      else if (listed && listed.y > y) out.returns[y] = {note:'-未成立'};
+      if (listed && listed.y === y + 1) out.returns[y] = {note:`${listed.y}年成立`};
+      else if (listed && listed.y > y) out.returns[y] = {note:'尚未成立'};
       continue;
     }
     out.returns[y] = prv == null ? {v:(end / first.a - 1) * 100, partial:true} : {v:(end / prv - 1) * 100};

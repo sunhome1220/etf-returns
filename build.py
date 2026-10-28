@@ -113,9 +113,9 @@ def year_returns(years, end_of, listed, first_val, simple=None):
         end, prev = end_of(y), end_of(y - 1)
         if end is None:
             if listed and listed.year == y + 1:
-                rets[str(y)] = {"note": "%d年%d月成立" % (listed.year % 100, listed.month)}
+                rets[str(y)] = {"note": "%d年成立" % listed.year}
             elif listed and listed.year > y:
-                rets[str(y)] = {"note": "-未成立"}
+                rets[str(y)] = {"note": "尚未成立"}
             continue
         if prev is None:  # 當年上市：從第一筆收盤算起
             rets[str(y)] = {"v": (end / first_val - 1) * 100, "partial": True}
@@ -231,8 +231,10 @@ def analyze(row, years, hist=None):
     out["symbol"] = symbol
     out["_market"] = market_time(data["meta"])
     out["_yname"] = data["meta"].get("shortName") or data["meta"].get("longName")
-    # 成立日：Yahoo 該檔最早交易日
-    if data["meta"].get("firstTradeDate"):
+    # 成立日：stocks.csv「成立」欄優先（Yahoo 台股資料最早只到 2000／2008 年，較舊的標的需手動填），否則用 Yahoo 最早交易日
+    if row.get("成立"):
+        out["since"] = row["成立"]
+    elif data["meta"].get("firstTradeDate"):
         out["since"] = dt.datetime.utcfromtimestamp(data["meta"]["firstTradeDate"] + off).date().isoformat()
     out["price"] = data["meta"].get("regularMarketPrice", pts[-1][1])
     prev = prev_close(symbol)
@@ -382,7 +384,7 @@ def analyze_twse(row, years, hist, key, cached, missing):
 
 DEFAULT_YEARS = 10
 CSV_PATH = os.path.join(HERE, "stocks.csv")
-CSV_FIELDS = ["區", "類", "代碼", "名稱", "除息", "Yahoo代號"]
+CSV_FIELDS = ["區", "類", "代碼", "名稱", "除息", "Yahoo代號", "成立"]
 MARKET_ORDER = ["台股", "美股", "英股"]
 
 
