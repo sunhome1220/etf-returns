@@ -43,13 +43,21 @@
   .nm.sm { font-size:.86em; max-width:calc(9em / .86); }
   .tag { margin-left:6px; font-size:11px; color:#2c7a3f; border:1px solid #2c7a3f; border-radius:3px; padding:0 3px; }
   table { border-collapse:collapse; white-space:nowrap; }
+  /* 表格字級：預設 13px（手機 12px），可用標題旁 A−／A＋ 調整（--fz） */
+  :root { --tbase:13px; --fz:0px; }
+  #t { font-size:calc(var(--tbase) + var(--fz)); }
   th, td { border:1px solid var(--bd); padding:3px 8px; }
+  .fzb { margin-left:6px; display:inline-flex; vertical-align:middle; }
+  .fzb button { padding:0 7px; border:1px solid #bbb; background:#fafafa; cursor:pointer; font:inherit; font-size:12px; font-weight:normal; line-height:20px; }
+  .fzb button:first-child { border-radius:4px 0 0 4px; } .fzb button:last-child { border-radius:0 4px 4px 0; border-left:none; }
+  .fzb button:disabled { opacity:.4; cursor:default; }
   thead th { background:var(--hd); position:sticky; top:0; z-index:2; font-weight:600; }
   thead tr.group th { background:#fff; top:0; color:#555; font-weight:normal; }
-  thead tr.cols th { top:27px; }
+  thead tr.cols th { top:27px; }   /* 實際值依群組列高度在 head() 設定 */
   th .h { display:flex; flex-direction:column; align-items:center; gap:1px; }
   th .tools { display:flex; align-items:center; gap:3px; line-height:1; }
   th .lbl { cursor:pointer; }
+  th.pd .lbl { font-size:.86em; }   /* 近一週、近一月…欄名小一級 */
   th .s { color:#999; font-size:10px; cursor:pointer; }
   th .f { padding:0 3px; border:1px solid #2c7a3f; background:#2c7a3f; color:#fff; border-radius:3px; font-size:9px; cursor:pointer; line-height:11px; }
   th .f.on { background:#f0b400; border-color:#f0b400; }
@@ -95,6 +103,7 @@
   @media (max-width:600px) {
     body { padding:8px; font-size:13px; }
     h1 { font-size:16px; } h1 .sub { margin-left:8px; } #optBtn { margin-left:6px; }
+    :root { --tbase:12px; }
     th, td { padding:2px 4px; }
     .wrap { max-height:calc(100vh - 110px); } body.collapsed .wrap { max-height:calc(100vh - 50px); }
   }
@@ -103,7 +112,7 @@
 <body>
 <h1><a href="./" class="home" title="回首頁">投資工具</a> › 各年度含息報酬率
   <a href="watchlist.html" class="home sub">我的追蹤清單</a>
-  <button id="optBtn"></button><span data-install></span></h1>
+  <button id="optBtn"></button><span class="fzb"><button id="fzDown" title="表格字體縮小">A−</button><button id="fzUp" title="表格字體放大">A＋</button></span><span data-install></span></h1>
 <div id="opts">
 <div class="bar">
   <select id="view" title="切換各年度或近期報酬率"><option value="year">各年度</option><option value="recent">近期</option></select>
@@ -295,7 +304,7 @@ function head() {
   const nYear = vc.filter(c => c.year || c.period).length;
   const th = vc.map(c => {
     const s = S.sortKey === c.k ? (S.sortDir < 0 ? '▼' : '▲') : '⇅';
-    return `<th${c.year || c.period ? ' class="yr"' : ''}><div class="h"><span class="tools"><span class="s" data-sort="${c.k}">${s}</span>` +
+    return `<th${c.year ? ' class="yr"' : c.period ? ' class="yr pd"' : ''}><div class="h"><span class="tools"><span class="s" data-sort="${c.k}">${s}</span>` +
       `<button class="f${S.filters[c.k] ? ' on' : ''}" data-f="${c.k}" title="篩選">▾</button></span>` +
       `<span class="lbl" data-sort="${c.k}">${c.label}</span></div></th>`;
   }).join('');
@@ -305,6 +314,9 @@ function head() {
     `<tr class="group"><th style="border:none"></th><th colspan="${vc.length - nYear}" style="border:none"></th>` +
     (nYear ? `<th colspan="${nYear}">${S.view === 'recent' ? '近期' : '各年度'}含息報酬率（${methodName()}）</th>` : '') + `</tr>` +
     `<tr class="cols"><th><input type="checkbox" id="pickAll" title="全選/全不選" ${allOn ? 'checked' : ''}></th>${th}</tr>`;
+  // 欄名列固定在群組列下方；群組列高度隨字級改變
+  const gh = document.querySelector('#t thead tr.group').offsetHeight;
+  document.querySelectorAll('#t thead tr.cols th').forEach(th => th.style.top = gh + 'px');
 }
 
 // 名稱是否放得進 9 個中文字的寬度（依實際字型量測，結果快取）
@@ -474,6 +486,17 @@ function applyCollapsed() {
 }
 optBtn.onclick = () => { S.collapsed = !S.collapsed; applyCollapsed(); save(); };
 applyCollapsed();
+// 表格字級：0 為預設，每級 1px，範圍 −3～+5
+const FZ_MIN = -3, FZ_MAX = 5;
+function applyFz() {
+  document.documentElement.style.setProperty('--fz', S.fz + 'px');
+  document.getElementById('fzDown').disabled = S.fz <= FZ_MIN;
+  document.getElementById('fzUp').disabled = S.fz >= FZ_MAX;
+}
+S.fz = Math.max(FZ_MIN, Math.min(FZ_MAX, +S.fz || 0));
+applyFz();
+document.getElementById('fzDown').onclick = () => { S.fz--; applyFz(); render(); };
+document.getElementById('fzUp').onclick = () => { S.fz++; applyFz(); render(); };
 document.getElementById('colBtn').onclick = e => { e.stopPropagation(); openCols(e.currentTarget); };
 // ---- 匯出圖片：依目前畫面（篩選、排序、欄位）把表格畫成 PNG，方便分享 ----
 async function exportImage() {
@@ -554,8 +577,8 @@ async function exportImage() {
 }
 document.getElementById('expBtn').onclick = () => exportImage().catch(e => alert('匯出失敗：' + e.message));
 document.getElementById('reset').onclick = () => {
-  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, calc:'simple', dec:1, view:'year', cum:false, ann:false});
-  spanEl.value = 3; methodEl.value = 'simple'; decEl.value = '1'; viewEl.value = 'year'; cumEl.checked = annEl.checked = false;
+  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, calc:'simple', dec:1, view:'year', cum:false, ann:false, fz:0});
+  spanEl.value = 3; methodEl.value = 'simple'; decEl.value = '1'; viewEl.value = 'year'; cumEl.checked = annEl.checked = false; applyFz();
   document.getElementById('q').value = ''; render();
 };
 // ---- 個人追蹤清單（watchlist.js，與「我的追蹤清單」頁同步）----
