@@ -52,6 +52,9 @@
   .fzb button:first-child { border-radius:4px 0 0 4px; } .fzb button:last-child { border-radius:0 4px 4px 0; border-left:none; }
   .fzb button:disabled { opacity:.4; cursor:default; }
   thead th { background:var(--hd); position:sticky; top:0; z-index:2; font-weight:600; }
+  /* 名稱欄固定在左側：左右捲動時仍看得到是哪一檔（框線用陰影畫，sticky 儲存格的框線瀏覽器不會畫） */
+  .stk { position:sticky; left:0; z-index:1; box-shadow:inset 1px 0 var(--bd), inset -1px 0 var(--bd), 3px 0 4px -3px rgba(0,0,0,.25); }
+  thead th.stk { z-index:3; }
   thead tr.group th { background:#fff; top:0; color:#555; font-weight:normal; }
   thead tr.cols th { top:27px; }   /* 實際值依群組列高度在 head() 設定 */
   th .h { display:flex; flex-direction:column; align-items:center; gap:1px; }
@@ -62,6 +65,7 @@
   th .f { padding:0 3px; border:1px solid #2c7a3f; background:#2c7a3f; color:#fff; border-radius:3px; font-size:9px; cursor:pointer; line-height:11px; }
   th .f.on { background:#f0b400; border-color:#f0b400; }
   td.c { text-align:center; } td.r { text-align:right; font-variant-numeric:tabular-nums; }
+  tbody td { background:#fff; }   /* 不透明底色，固定的名稱欄才蓋得住捲過去的欄位 */
   tbody tr:nth-child(even) td { background:#f5f5f5; }
   tr.主動 td { background:var(--active); } tr.個股-穩 td { background:#e3f0e3; }
   tr.主動:nth-child(even) td { background:#e4d3e4; } tr.個股-穩:nth-child(even) td { background:#d3e7d3; }
@@ -97,14 +101,16 @@
   .explain dt { font-weight:600; margin-top:6px; } .explain dd { margin:0 0 0 1em; }
   .explain .warn { color:#b26a00; }
   .explain ul { margin:0; padding-left:1.4em; } .explain li { margin-bottom:4px; }
-  tfoot td { position:sticky; bottom:0; white-space:normal; background:#f7f7f7; font-size:8px; line-height:1.4; color:#888; padding:3px 10px; }
+  tfoot td { position:sticky; bottom:0; z-index:2; white-space:normal; background:#f7f7f7; font-size:8px; line-height:1.4; color:#888; padding:3px 10px; }
   tfoot .gen { float:right; color:#888; margin-left:24px; }
   tfoot td > div { width:0; min-width:100%; }   /* 不讓頁尾文字撐寬欄位 */
   @media (max-width:600px) {
     body { padding:8px; font-size:13px; }
     h1 { font-size:16px; } h1 .sub { margin-left:8px; } #optBtn { margin-left:6px; }
     :root { --tbase:12px; }
-    th, td { padding:2px 4px; }
+    .rm { display:none; }   /* 手機省寬度；移除請到「我的追蹤清單」 */
+    th, td { padding:2px 3px; }
+    th.yr, td.yr { width:4.6em; min-width:4.6em; }
     .wrap { max-height:calc(100vh - 110px); } body.collapsed .wrap { max-height:calc(100vh - 50px); }
   }
 </style>
@@ -256,6 +262,10 @@ S.filters = S.filters || {};      // k -> {vals:[允許的文字] | null, min, m
 S.picked = S.picked || [];        // 勾選的代碼
 S.mode = S.mode || '';            // '' | 'only' | 'hide'
 S.hiddenCols = S.hiddenCols || [];
+// 手機預設隱藏區域、類別、除息（可從「欄位」叫回）；只在使用者沒自訂過欄位時套用一次
+const MOBILE_HIDDEN = ['區', '類', '除息'];
+const defaultHidden = () => innerWidth < 600 ? [...MOBILE_HIDDEN] : [];
+if (S.colsV !== 2) { if (!S.hiddenCols.length) S.hiddenCols = defaultHidden(); S.colsV = 2; }
 delete S.method;                    // 舊版欄位（當時預設再投入）
 S.calc = S.calc || 'simple';        // 'simple' 股息不再投入（預設）| 'tr' 股息再投入
 S.dec = S.dec === 2 ? 2 : 1;        // 小數位數，預設 1 位
@@ -304,7 +314,7 @@ function head() {
   const nYear = vc.filter(c => c.year || c.period).length;
   const th = vc.map(c => {
     const s = S.sortKey === c.k ? (S.sortDir < 0 ? '▼' : '▲') : '⇅';
-    return `<th${c.year ? ' class="yr"' : c.period ? ' class="yr pd"' : ''}><div class="h"><span class="tools"><span class="s" data-sort="${c.k}">${s}</span>` +
+    return `<th${c.year ? ' class="yr"' : c.period ? ' class="yr pd"' : c.k === '名稱' ? ' class="stk"' : ''}><div class="h"><span class="tools"><span class="s" data-sort="${c.k}">${s}</span>` +
       `<button class="f${S.filters[c.k] ? ' on' : ''}" data-f="${c.k}" title="篩選">▾</button></span>` +
       `<span class="lbl" data-sort="${c.k}">${c.label}</span></div></th>`;
   }).join('');
@@ -336,7 +346,7 @@ function cell(c, r) {
     case '類': return `<td class="c t-${r.類}">${r.類}</td>`;
     case '除息': return `<td class="c div">${r.除息 || ''}</td>`;
     case '代碼': return `<td>${esc(v.text)}</td>`;
-    case '名稱': return `<td title="${esc(v.text)}"><span class="nm${nameFits(v.text) ? '' : ' sm'}">${esc(v.text)}</span>` +
+    case '名稱': return `<td class="stk" title="${esc(v.text)}"><span class="nm${nameFits(v.text) ? '' : ' sm'}">${esc(v.text)}</span>` +
       `${r.custom ? '<span class="tag">自訂</span>' : ''}</td>`;
     case 'price': return `<td class="r">${r.error ? '' : v.text}</td>`;
     case 'chg': return `<td class="r ${r.chg < 0 ? 'neg' : 'pos'}">${r.chg == null ? '' : v.text}</td>`;
@@ -577,7 +587,7 @@ async function exportImage() {
 }
 document.getElementById('expBtn').onclick = () => exportImage().catch(e => alert('匯出失敗：' + e.message));
 document.getElementById('reset').onclick = () => {
-  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, calc:'simple', dec:1, view:'year', cum:false, ann:false, fz:0});
+  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:defaultHidden(), span:3, calc:'simple', dec:1, view:'year', cum:false, ann:false, fz:0});
   spanEl.value = 3; methodEl.value = 'simple'; decEl.value = '1'; viewEl.value = 'year'; cumEl.checked = annEl.checked = false; applyFz();
   document.getElementById('q').value = ''; render();
 };
