@@ -65,7 +65,7 @@
   .pop label:hover { background:#f2f7ff; }
   .pop .ttl { font-weight:600; margin-bottom:6px; }
   .err { color:#c00; }
-  #method { padding:3px 6px; border:1px solid #bbb; border-radius:4px; background:#fafafa; font:inherit; }
+  #method, #dec { padding:3px 6px; border:1px solid #bbb; border-radius:4px; background:#fafafa; font:inherit; }
   .explain { max-width:760px; margin:20px 0 8px; font-size:13px; color:#444; line-height:1.6; }
   .explain h2 { font-size:15px; margin:0 0 6px; } .explain h3 { font-size:14px; margin:12px 0 4px; }
   .explain dt { font-weight:600; margin-top:6px; } .explain dd { margin:0 0 0 1em; }
@@ -91,6 +91,7 @@
   <label class="span">年度範圍：近 <b id="spanN"></b> 年 <span id="spanR"></span>
     <input id="span" type="range" min="1" step="1"></label>
   <select id="method" title="報酬率算法（說明見頁面最下方）"><option value="simple">股息不再投入</option><option value="tr">股息再投入</option></select>
+  <select id="dec" title="數字的小數位數（全部欄位一起變動）"><option value="1">小數 1 位</option><option value="2">小數 2 位</option></select>
   <input id="q" type="search" placeholder="搜尋代碼 / 名稱">
   <button id="onlyPicked">只看勾選</button>
   <button id="hidePicked">隱藏勾選</button>
@@ -145,7 +146,9 @@
 <script>
 const DATA = /*DATA*/null;
 const years = DATA.years;
-const fmtPct = v => v.toFixed(Math.abs(v) >= 100 ? 2 : 1) + '%';
+// 數字一律顯示 S.dec 位小數（1 或 2），整欄小數點對齊
+const fmtNum = v => v >= 10000 ? v.toLocaleString('en-US', {minimumFractionDigits:S.dec, maximumFractionDigits:S.dec}) : v.toFixed(S.dec);
+const fmtPct = v => v.toFixed(S.dec) + '%';
 
 // 每個欄位：sort = 排序值，text = 顯示/篩選文字
 const cols = [
@@ -154,8 +157,8 @@ const cols = [
   {k:'除息', label:'除息', get:r => ({sort:r.除息 || '', text:r.除息 || '(空白)'})},
   {k:'代碼', label:'代碼', get:r => ({sort:r.代碼, text:r.代碼})},
   {k:'名稱', label:'名稱', get:r => ({sort:r.名稱, text:r.名稱})},
-  {k:'price', label:'現價', num:true, get:r => r.error ? {sort:null, text:'(無資料)'} : {sort:r.price, text:r.price >= 10000 ? Math.round(r.price).toLocaleString('en-US') : String(+r.price.toFixed(2))}},
-  {k:'chg', label:'最後交易<br>日漲跌', num:true, get:r => r.chg == null ? {sort:null, text:'(無資料)'} : {sort:r.chg, text:r.chg.toFixed(2) + '%'}},
+  {k:'price', label:'現價', num:true, get:r => r.error ? {sort:null, text:'(無資料)'} : {sort:r.price, text:fmtNum(r.price)}},
+  {k:'chg', label:'最後交易<br>日漲跌', num:true, get:r => r.chg == null ? {sort:null, text:'(無資料)'} : {sort:r.chg, text:fmtPct(r.chg)}},
   ...years.map(y => ({k:'y' + y, year:y, label:String(y), num:true, get:r => {
     const x = r.returns && r.returns[y];
     if (!x) return {sort:null, text:'(空白)'};
@@ -176,6 +179,7 @@ S.mode = S.mode || '';            // '' | 'only' | 'hide'
 S.hiddenCols = S.hiddenCols || [];
 delete S.method;                    // 舊版欄位（當時預設再投入）
 S.calc = S.calc || 'simple';        // 'simple' 股息不再投入（預設）| 'tr' 股息再投入
+S.dec = S.dec === 2 ? 2 : 1;        // 小數位數，預設 1 位
 const methodName = () => S.calc === 'simple' ? '股息不再投入' : '股息再投入';
 const MAX_SPAN = Math.min(10, years.length);
 S.span = Math.min(S.span || 3, MAX_SPAN);   // 報酬率年度範圍，預設近三年
@@ -453,8 +457,8 @@ async function exportImage() {
 }
 document.getElementById('expBtn').onclick = () => exportImage().catch(e => alert('匯出失敗：' + e.message));
 document.getElementById('reset').onclick = () => {
-  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, calc:'simple'});
-  spanEl.value = 3; methodEl.value = 'simple';
+  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, calc:'simple', dec:1});
+  spanEl.value = 3; methodEl.value = 'simple'; decEl.value = '1';
   document.getElementById('q').value = ''; render();
 };
 // ---- 個人追蹤清單（watchlist.js，與「我的追蹤清單」頁同步）----
@@ -724,6 +728,14 @@ spanEl.addEventListener('input', () => { S.span = +spanEl.value; render(); });
 const methodEl = document.getElementById('method');
 methodEl.value = S.calc;
 methodEl.addEventListener('change', () => { S.calc = methodEl.value; render(); });
+const decEl = document.getElementById('dec');
+decEl.value = S.dec;
+decEl.addEventListener('change', () => {
+  S.dec = +decEl.value;
+  // 數字欄勾選的值是依顯示文字比對，位數改變後失效，只保留最小／最大值條件
+  for (const [k, f] of Object.entries(S.filters)) if (colByKey[k] && colByKey[k].num) delete f.vals;
+  render();
+});
 document.addEventListener('click', closePop);
 document.getElementById('q').addEventListener('input', body);
 loadCustom();
