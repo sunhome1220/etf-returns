@@ -77,7 +77,12 @@
   .multi label { display:flex; align-items:center; gap:2px; cursor:pointer; }
   #view, #method, #dec { padding:3px 6px; border:1px solid #bbb; border-radius:4px; background:#fafafa; font:inherit; }
   .explain { max-width:760px; margin:20px 0 8px; font-size:13px; color:#444; line-height:1.6; }
-  .explain h2 { font-size:15px; margin:0 0 6px; } .explain h3 { font-size:14px; margin:12px 0 4px; }
+  .explain h2 { font-size:15px; margin:0 0 6px; }
+  .explain details { border-top:1px solid var(--bd); }
+  .explain details:last-child { border-bottom:1px solid var(--bd); }
+  .explain summary { padding:7px 4px; font-weight:600; font-size:14px; cursor:pointer; color:#2c7a3f; }
+  .explain summary:hover { background:#f2f7f3; }
+  .explain .body { padding:0 4px 10px; }
   .explain dt { font-weight:600; margin-top:6px; } .explain dd { margin:0 0 0 1em; }
   .explain .warn { color:#b26a00; }
   .explain ul { margin:0; padding-left:1.4em; } .explain li { margin-bottom:4px; }
@@ -127,7 +132,10 @@
 </div>
 <div class="wrap"><table id="t"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
 <section class="explain">
-  <h2>兩種報酬率算法的差異</h2>
+  <h2>說明</h2>
+  <details>
+    <summary>兩種報酬率算法（股息不再投入／再投入）</summary>
+    <div class="body">
   <dl>
     <dt>股息不再投入（預設）</dt>
     <dd>股息領了就放著當現金，不再買回。和一般投資人自己對帳的方式相同，不需要假設何時、用什麼價格買回。<br>
@@ -137,21 +145,11 @@
       公式：該年最後還原收盤價 ÷ 前一年最後還原收盤價 − 1<br>
       <span class="warn">這是理想化的假設：實際上股息要到發放日（通常是除息後 3～6 週）才入帳，入帳後買回的價格也和除息日不同，所以真正自己再投入的結果和這個數字會有落差。</span></dd>
   </dl>
-  <h3>近期報酬率</h3>
-  <ul>
-    <li>上方選單切換「各年度／近期」。近期包含近一週、近一月、近三月、近半年、近一年；近三年、近五年的累積與年化報酬率在「近三／五年」勾選後才顯示（預設不顯示，避免表格太寬）。</li>
-    <li><b>起點</b>：以最新收盤日往回推 7 天或 1／3／6／12／36／60 個月（日曆日），取那一天收盤；那天沒開盤就取之前最後一個交易日。例如最新收盤日是 10/28，近一月的起點就是 9/28（或之前最後一個交易日）。</li>
-    <li><b>股息</b>：跟著上方的算法切換。不再投入＝（最新價＋期間內除息合計−起點收盤價）÷ 起點收盤價；再投入＝最新還原價 ÷ 起點還原價 − 1。</li>
-    <li><b>年化</b>＝(1＋累積報酬率)^(1／年數)−1，也就是換算成平均每年的報酬率。</li>
-    <li>上市時間比期間短的顯示「上市未滿」。</li>
-  </ul>
-  <h3>資料更新方式</h3>
-  <ul>
-    <li><b>即時</b>：打開網頁時，透過資料代理向 Yahoo 抓最新價格，重算「現價」「最後交易日漲跌」、<b>今年</b>與<b>近期</b>報酬率（盤中為當下成交價，約有 5 分鐘快取）。完成時間顯示在表格下方「現價與報酬率即時更新於…」。</li>
-    <li><b>排程</b>：過去年度的報酬率不會再變，由 GitHub 排程每個平日執行兩次（台北約 15:17 台股收盤後、06:17 美股收盤後；GitHub 排程常會延遲數小時）。表格下方「排程更新於…」是排程實際執行完成的時間。</li>
-    <li>即時價格抓不到時（例如資料代理無法連線），整列沿用排程資料，表格下方會註明。台灣報酬指數、加權指數只隨排程更新。</li>
-  </ul>
-  <h3>為什麼兩者數字不同</h3>
+    </div>
+  </details>
+  <details>
+    <summary>為什麼兩種算法的數字不同</summary>
+    <div class="body">
   <ul>
     <li><b>股息的複利</b>：「再投入」假設股息在除息日就買回，之後跟著漲跌。除息後到年底若上漲，「再投入」較高；若下跌，「不再投入」較高。配息越多、越頻繁（月配、季配），差距越大；不配息的標的兩者相同。<br>
       例：年初 100 元，年中除息 5 元（除息後 105 元），年底 120 元。不再投入：(120＋5−100)÷100 ＝ 25.0%；再投入：5 元以 105 元買回，持股變 1＋5÷105 倍，年底市值 120×1.0476 ＝ 125.7，報酬 25.7%。</li>
@@ -160,13 +158,41 @@
     <li><b>上市當年</b>（斜體）：從上市第一天收盤價起算，不是從前一年底。</li>
     <li><b>指數</b>：台灣報酬指數本身已含息再投入，加權指數不含息；兩者不受此切換影響。</li>
   </ul>
-  <h3>手機 App</h3>
+    </div>
+  </details>
+  <details>
+    <summary>近期報酬率怎麼算</summary>
+    <div class="body">
+  <ul>
+    <li>上方選單切換「各年度／近期」。近期包含近一週、近一月、近三月、近半年、近一年；近三年、近五年的累積與年化報酬率在「近三／五年」勾選後才顯示（預設不顯示，避免表格太寬）。</li>
+    <li><b>起點</b>：以最新收盤日往回推 7 天或 1／3／6／12／36／60 個月（日曆日），取那一天收盤；那天沒開盤就取之前最後一個交易日。例如最新收盤日是 10/28，近一月的起點就是 9/28（或之前最後一個交易日）。</li>
+    <li><b>股息</b>：跟著上方的算法切換。不再投入＝（最新價＋期間內除息合計−起點收盤價）÷ 起點收盤價；再投入＝最新還原價 ÷ 起點還原價 − 1。</li>
+    <li><b>年化</b>＝(1＋累積報酬率)^(1／年數)−1，也就是換算成平均每年的報酬率。</li>
+    <li>上市時間比期間短的顯示「上市未滿」。</li>
+  </ul>
+    </div>
+  </details>
+  <details>
+    <summary>資料更新方式與時間</summary>
+    <div class="body">
+  <ul>
+    <li><b>即時</b>：打開網頁時，透過資料代理向 Yahoo 抓最新價格，重算「現價」「最後交易日漲跌」、<b>今年</b>與<b>近期</b>報酬率（盤中為當下成交價，約有 5 分鐘快取）。完成時間顯示在表格下方「現價與報酬率即時更新於…」。</li>
+    <li><b>排程</b>：過去年度的報酬率不會再變，由 GitHub 排程每個平日執行兩次（台北約 15:17 台股收盤後、06:17 美股收盤後；GitHub 排程常會延遲數小時）。表格下方「排程更新於…」是排程實際執行完成的時間。</li>
+    <li>即時價格抓不到時（例如資料代理無法連線），整列沿用排程資料，表格下方會註明。台灣報酬指數、加權指數只隨排程更新。</li>
+  </ul>
+    </div>
+  </details>
+  <details>
+    <summary>手機 App 與更新紀錄</summary>
+    <div class="body">
   <ul>
     <li><b>iPhone／iPad</b>：用 Safari 打開本頁 → 分享按鈕 → 「加入主畫面」。</li>
     <li><b>Android</b>：用 Chrome 打開本頁 → 標題旁的「安裝 App」（或選單 → 「安裝應用程式」／「加到主畫面」）。</li>
     <li>網站有更新時，打開後會顯示更新內容；App 開著時有新版本，回到 App 會出現「網站有新版本，點這裡更新」。<a href="#" onclick="showChangelog(); return false">查看更新紀錄</a></li>
     <li>App 從背景回到前景超過 10 分鐘，會自動重新抓最新價格。</li>
   </ul>
+    </div>
+  </details>
 </section>
 
 <script src="watchlist.js"></script>
