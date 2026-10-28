@@ -12,6 +12,7 @@
 <title>各年度含息報酬率</title>
 <style>
   :root { --bd:#d9d9d9; --hd:#f3f3f3; --active:#efe3ef; --up:#e0218a; --low:#1f4fbf; --down:#2e8b3d; }
+  html { -webkit-text-size-adjust:100%; text-size-adjust:100%; }   /* 手機不要自動放大寬表格裡的小字 */
   body { margin:0; padding:16px; font:14px/1.4 "Microsoft JhengHei","PingFang TC",sans-serif; background:#fff; color:#222; }
   h1 { font-size:18px; margin:0 0 8px; }
   h1 .home { color:#2c7a3f; text-decoration:none; font-weight:normal; }
@@ -79,7 +80,7 @@
   .explain dt { font-weight:600; margin-top:6px; } .explain dd { margin:0 0 0 1em; }
   .explain .warn { color:#b26a00; }
   .explain ul { margin:0; padding-left:1.4em; } .explain li { margin-bottom:4px; }
-  tfoot td { position:sticky; bottom:0; white-space:normal; background:#f7f7f7; font-size:10px; color:#888; padding:4px 10px; }
+  tfoot td { position:sticky; bottom:0; white-space:normal; background:#f7f7f7; font-size:8px; line-height:1.4; color:#888; padding:3px 10px; }
   tfoot .gen { float:right; color:#888; margin-left:24px; }
   tfoot td > div { width:0; min-width:100%; }   /* 不讓頁尾文字撐寬欄位 */
   @media (max-width:600px) {
@@ -454,7 +455,7 @@ async function exportImage() {
     for (const ch of text) { if (g.measureText(line + ch).width > W && line) { out.push(line); line = ch; } else line += ch; }
     if (line) out.push(line); return out;
   };
-  const footLines = wrap(foot, '10px ' + getComputedStyle(document.body).fontFamily);
+  const footLines = wrap(foot, '8px ' + getComputedStyle(document.body).fontFamily);
   // 目前算法說明，放在表格下方
   const how = S.calc === 'simple'
     ? '算法：股息不再投入＝（該年最後收盤價＋當年除息合計−前一年最後收盤價）÷ 前一年最後收盤價；股息領了不再買回，以除息日歸年。'
@@ -462,7 +463,7 @@ async function exportImage() {
   const howLines = wrap(how + (S.view === 'recent'
     ? '近期：以最新收盤日往回推 7 天、1／3／6／12／36／60 個月，起點取該日或之前最後一個交易日收盤；年化＝(1＋累積)^(1/年數)−1。'
     : '今年為年初至今；斜體＝上市當年，從上市首日收盤起算。'), '12px ' + getComputedStyle(document.body).fontFamily);
-  const top = 56, H = top + TB + 10 + howLines.length * 17 + 4 + footLines.length * 14 + (src ? 14 : 0) + PAD;
+  const top = 56, H = top + TB + 10 + howLines.length * 17 + 4 + footLines.length * 11 + (src ? 11 : 0) + PAD;
   cv.width = (W + PAD * 2) * SC; cv.height = H * SC;
   g.scale(SC, SC); g.fillStyle = '#fff'; g.fillRect(0, 0, W + PAD * 2, H);
   g.textBaseline = 'middle'; g.fillStyle = '#222'; g.font = 'bold 18px ' + getComputedStyle(document.body).fontFamily;
@@ -491,8 +492,8 @@ async function exportImage() {
   g.textAlign = 'left'; g.font = '12px ' + getComputedStyle(document.body).fontFamily; g.fillStyle = '#444';
   let fy = top + TB + 18;
   howLines.forEach(s => { g.fillText(s, PAD, fy); fy += 17; });
-  fy += 4; g.font = '10px ' + getComputedStyle(document.body).fontFamily; g.fillStyle = '#888';
-  footLines.forEach(s => { g.fillText(s, PAD, fy); fy += 14; });
+  fy += 4; g.font = '8px ' + getComputedStyle(document.body).fontFamily; g.fillStyle = '#888';
+  footLines.forEach(s => { g.fillText(s, PAD, fy); fy += 11; });
   if (src) { g.fillStyle = '#2c7a3f'; g.fillText(src, PAD, fy); }
   const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
   const name = `etf-returns-${DATA.updated.slice(0, 10).replace(/\//g, '')}.png`;
