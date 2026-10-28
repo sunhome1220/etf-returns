@@ -38,19 +38,34 @@
   #amsg.ok { color:#2c7a3f; } #amsg.bad { color:#c00; } #amsg { color:#888; }
   .rm { border:none; background:none; color:#bbb; cursor:pointer; padding:0 2px; font-size:12px; }
   .rm:hover { color:#c00; }
+  /* 名稱最寬 9 個中文字；超過的縮小一級（.sm），再放不下就以 … 結尾 */
+  .nm { display:inline-block; max-width:9em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
+  .nm.sm { font-size:.86em; max-width:calc(9em / .86); }
   .tag { margin-left:6px; font-size:11px; color:#2c7a3f; border:1px solid #2c7a3f; border-radius:3px; padding:0 3px; }
   table { border-collapse:collapse; white-space:nowrap; }
+  /* 表格字級：預設 13px（手機 12px），可用標題旁 A−／A＋ 調整（--fz） */
+  :root { --tbase:13px; --fz:0px; }
+  #t { font-size:calc(var(--tbase) + var(--fz)); }
   th, td { border:1px solid var(--bd); padding:3px 8px; }
+  .fzb { margin-left:6px; display:inline-flex; vertical-align:middle; }
+  .fzb button { padding:0 7px; border:1px solid #bbb; background:#fafafa; cursor:pointer; font:inherit; font-size:12px; font-weight:normal; line-height:20px; }
+  .fzb button:first-child { border-radius:4px 0 0 4px; } .fzb button:last-child { border-radius:0 4px 4px 0; border-left:none; }
+  .fzb button:disabled { opacity:.4; cursor:default; }
   thead th { background:var(--hd); position:sticky; top:0; z-index:2; font-weight:600; }
+  /* 名稱欄固定在左側：左右捲動時仍看得到是哪一檔（框線用陰影畫，sticky 儲存格的框線瀏覽器不會畫） */
+  .stk { position:sticky; left:0; z-index:1; box-shadow:inset 1px 0 var(--bd), inset -1px 0 var(--bd), 3px 0 4px -3px rgba(0,0,0,.25); }
+  thead th.stk { z-index:3; }
   thead tr.group th { background:#fff; top:0; color:#555; font-weight:normal; }
-  thead tr.cols th { top:27px; }
+  thead tr.cols th { top:27px; }   /* 實際值依群組列高度在 head() 設定 */
   th .h { display:flex; flex-direction:column; align-items:center; gap:1px; }
   th .tools { display:flex; align-items:center; gap:3px; line-height:1; }
   th .lbl { cursor:pointer; }
+  th.pd .lbl { font-size:.86em; }   /* 近一週、近一月…欄名小一級 */
   th .s { color:#999; font-size:10px; cursor:pointer; }
   th .f { padding:0 3px; border:1px solid #2c7a3f; background:#2c7a3f; color:#fff; border-radius:3px; font-size:9px; cursor:pointer; line-height:11px; }
   th .f.on { background:#f0b400; border-color:#f0b400; }
   td.c { text-align:center; } td.r { text-align:right; font-variant-numeric:tabular-nums; }
+  tbody td { background:#fff; }   /* 不透明底色，固定的名稱欄才蓋得住捲過去的欄位 */
   tbody tr:nth-child(even) td { background:#f5f5f5; }
   tr.主動 td { background:var(--active); } tr.個股-穩 td { background:#e3f0e3; }
   tr.主動:nth-child(even) td { background:#e4d3e4; } tr.個股-穩:nth-child(even) td { background:#d3e7d3; }
@@ -86,13 +101,16 @@
   .explain dt { font-weight:600; margin-top:6px; } .explain dd { margin:0 0 0 1em; }
   .explain .warn { color:#b26a00; }
   .explain ul { margin:0; padding-left:1.4em; } .explain li { margin-bottom:4px; }
-  tfoot td { position:sticky; bottom:0; white-space:normal; background:#f7f7f7; font-size:8px; line-height:1.4; color:#888; padding:3px 10px; }
+  tfoot td { position:sticky; bottom:0; z-index:2; white-space:normal; background:#f7f7f7; font-size:8px; line-height:1.4; color:#888; padding:3px 10px; }
   tfoot .gen { float:right; color:#888; margin-left:24px; }
   tfoot td > div { width:0; min-width:100%; }   /* 不讓頁尾文字撐寬欄位 */
   @media (max-width:600px) {
     body { padding:8px; font-size:13px; }
     h1 { font-size:16px; } h1 .sub { margin-left:8px; } #optBtn { margin-left:6px; }
-    th, td { padding:2px 4px; }
+    :root { --tbase:12px; }
+    .rm { display:none; }   /* 手機省寬度；移除請到「我的追蹤清單」 */
+    th, td { padding:2px 3px; }
+    th.yr, td.yr { width:4.6em; min-width:4.6em; }
     .wrap { max-height:calc(100vh - 110px); } body.collapsed .wrap { max-height:calc(100vh - 50px); }
   }
 </style>
@@ -100,7 +118,7 @@
 <body>
 <h1><a href="./" class="home" title="回首頁">投資工具</a> › 各年度含息報酬率
   <a href="watchlist.html" class="home sub">我的追蹤清單</a>
-  <button id="optBtn"></button><span data-install></span></h1>
+  <button id="optBtn"></button><span class="fzb"><button id="fzDown" title="表格字體縮小">A−</button><button id="fzUp" title="表格字體放大">A＋</button></span><span data-install></span></h1>
 <div id="opts">
 <div class="bar">
   <select id="view" title="切換各年度或近期報酬率"><option value="year">各年度</option><option value="recent">近期</option></select>
@@ -244,6 +262,10 @@ S.filters = S.filters || {};      // k -> {vals:[允許的文字] | null, min, m
 S.picked = S.picked || [];        // 勾選的代碼
 S.mode = S.mode || '';            // '' | 'only' | 'hide'
 S.hiddenCols = S.hiddenCols || [];
+// 手機預設隱藏區域、類別、除息（可從「欄位」叫回）；只在使用者沒自訂過欄位時套用一次
+const MOBILE_HIDDEN = ['區', '類', '除息'];
+const defaultHidden = () => innerWidth < 600 ? [...MOBILE_HIDDEN] : [];
+if (S.colsV !== 2) { if (!S.hiddenCols.length) S.hiddenCols = defaultHidden(); S.colsV = 2; }
 delete S.method;                    // 舊版欄位（當時預設再投入）
 S.calc = S.calc || 'simple';        // 'simple' 股息不再投入（預設）| 'tr' 股息再投入
 S.dec = S.dec === 2 ? 2 : 1;        // 小數位數，預設 1 位
@@ -292,7 +314,7 @@ function head() {
   const nYear = vc.filter(c => c.year || c.period).length;
   const th = vc.map(c => {
     const s = S.sortKey === c.k ? (S.sortDir < 0 ? '▼' : '▲') : '⇅';
-    return `<th${c.year || c.period ? ' class="yr"' : ''}><div class="h"><span class="tools"><span class="s" data-sort="${c.k}">${s}</span>` +
+    return `<th${c.year ? ' class="yr"' : c.period ? ' class="yr pd"' : c.k === '名稱' ? ' class="stk"' : ''}><div class="h"><span class="tools"><span class="s" data-sort="${c.k}">${s}</span>` +
       `<button class="f${S.filters[c.k] ? ' on' : ''}" data-f="${c.k}" title="篩選">▾</button></span>` +
       `<span class="lbl" data-sort="${c.k}">${c.label}</span></div></th>`;
   }).join('');
@@ -302,8 +324,21 @@ function head() {
     `<tr class="group"><th style="border:none"></th><th colspan="${vc.length - nYear}" style="border:none"></th>` +
     (nYear ? `<th colspan="${nYear}">${S.view === 'recent' ? '近期' : '各年度'}含息報酬率（${methodName()}）</th>` : '') + `</tr>` +
     `<tr class="cols"><th><input type="checkbox" id="pickAll" title="全選/全不選" ${allOn ? 'checked' : ''}></th>${th}</tr>`;
+  // 欄名列固定在群組列下方；群組列高度隨字級改變
+  const gh = document.querySelector('#t thead tr.group').offsetHeight;
+  document.querySelectorAll('#t thead tr.cols th').forEach(th => th.style.top = gh + 'px');
 }
 
+// 名稱是否放得進 9 個中文字的寬度（依實際字型量測，結果快取）
+const nameCtx = document.createElement('canvas').getContext('2d'), nameFit = {};
+function nameFits(t) {
+  if (!(t in nameFit)) {
+    const cs = getComputedStyle(document.body);
+    nameCtx.font = `${cs.fontSize} ${cs.fontFamily}`;
+    nameFit[t] = nameCtx.measureText(t).width <= nameCtx.measureText('國'.repeat(9)).width + 0.5;
+  }
+  return nameFit[t];
+}
 function cell(c, r) {
   const v = c.get(r);
   switch (c.k) {
@@ -311,7 +346,8 @@ function cell(c, r) {
     case '類': return `<td class="c t-${r.類}">${r.類}</td>`;
     case '除息': return `<td class="c div">${r.除息 || ''}</td>`;
     case '代碼': return `<td>${esc(v.text)}</td>`;
-    case '名稱': return `<td>${esc(v.text)}${r.custom ? '<span class="tag">自訂</span>' : ''}</td>`;
+    case '名稱': return `<td class="stk" title="${esc(v.text)}"><span class="nm${nameFits(v.text) ? '' : ' sm'}">${esc(v.text)}</span>` +
+      `${r.custom ? '<span class="tag">自訂</span>' : ''}</td>`;
     case 'price': return `<td class="r">${r.error ? '' : v.text}</td>`;
     case 'chg': return `<td class="r ${r.chg < 0 ? 'neg' : 'pos'}">${r.chg == null ? '' : v.text}</td>`;
   }
@@ -460,6 +496,17 @@ function applyCollapsed() {
 }
 optBtn.onclick = () => { S.collapsed = !S.collapsed; applyCollapsed(); save(); };
 applyCollapsed();
+// 表格字級：0 為預設，每級 1px，範圍 −3～+5
+const FZ_MIN = -3, FZ_MAX = 5;
+function applyFz() {
+  document.documentElement.style.setProperty('--fz', S.fz + 'px');
+  document.getElementById('fzDown').disabled = S.fz <= FZ_MIN;
+  document.getElementById('fzUp').disabled = S.fz >= FZ_MAX;
+}
+S.fz = Math.max(FZ_MIN, Math.min(FZ_MAX, +S.fz || 0));
+applyFz();
+document.getElementById('fzDown').onclick = () => { S.fz--; applyFz(); render(); };
+document.getElementById('fzUp').onclick = () => { S.fz++; applyFz(); render(); };
 document.getElementById('colBtn').onclick = e => { e.stopPropagation(); openCols(e.currentTarget); };
 // ---- 匯出圖片：依目前畫面（篩選、排序、欄位）把表格畫成 PNG，方便分享 ----
 async function exportImage() {
@@ -507,8 +554,14 @@ async function exportImage() {
     const lbl = c.querySelector('.lbl');
     const lines = lbl ? lbl.innerHTML.split('<br>').map(s => s.replace(/<[^>]*>/g, '')) :
       [[...c.childNodes].filter(n => n.nodeType === 3 || !n.classList?.contains('tag')).map(n => n.textContent).join('')];
-    const tc = lbl ? getComputedStyle(lbl) : cs;
+    const nm = c.querySelector('.nm');
+    const tc = lbl ? getComputedStyle(lbl) : nm ? getComputedStyle(nm) : cs;
     g.font = font(tc); g.fillStyle = tc.color;
+    if (nm && nm.scrollWidth > nm.clientWidth) {   // 名稱被截斷：圖片上同樣以 … 結尾
+      let t = lines[0];
+      while (t.length > 1 && g.measureText(t + '…').width > nm.clientWidth) t = t.slice(0, -1);
+      lines[0] = t + '…';
+    }
     const al = lbl || cs.textAlign === 'center' ? 'center' : cs.textAlign === 'right' ? 'right' : 'left';
     g.textAlign = al;
     const tx = al === 'center' ? x + w / 2 : al === 'right' ? x + w - parseFloat(cs.paddingRight) : x + parseFloat(cs.paddingLeft);
@@ -534,8 +587,8 @@ async function exportImage() {
 }
 document.getElementById('expBtn').onclick = () => exportImage().catch(e => alert('匯出失敗：' + e.message));
 document.getElementById('reset').onclick = () => {
-  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, calc:'simple', dec:1, view:'year', cum:false, ann:false});
-  spanEl.value = 3; methodEl.value = 'simple'; decEl.value = '1'; viewEl.value = 'year'; cumEl.checked = annEl.checked = false;
+  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:defaultHidden(), span:3, calc:'simple', dec:1, view:'year', cum:false, ann:false, fz:0});
+  spanEl.value = 3; methodEl.value = 'simple'; decEl.value = '1'; viewEl.value = 'year'; cumEl.checked = annEl.checked = false; applyFz();
   document.getElementById('q').value = ''; render();
 };
 // ---- 個人追蹤清單（watchlist.js，與「我的追蹤清單」頁同步）----
