@@ -124,6 +124,12 @@
       公式：該年最後還原收盤價 ÷ 前一年最後還原收盤價 − 1<br>
       <span class="warn">這是理想化的假設：實際上股息要到發放日（通常是除息後 3～6 週）才入帳，入帳後買回的價格也和除息日不同，所以真正自己再投入的結果和這個數字會有落差。</span></dd>
   </dl>
+  <h3>資料更新方式</h3>
+  <ul>
+    <li><b>即時</b>：打開網頁時，透過資料代理向 Yahoo 抓最新價格，重算「現價」「最後交易日漲跌」與<b>今年</b>的報酬率（盤中為當下成交價，約有 5 分鐘快取）。完成時間顯示在表格下方「現價與今年報酬率即時更新於…」。</li>
+    <li><b>排程</b>：過去年度的報酬率不會再變，由 GitHub 排程每個平日執行兩次（台北約 15:17 台股收盤後、06:17 美股收盤後；GitHub 排程常會延遲數小時）。表格下方「排程更新於…」是排程實際執行完成的時間。</li>
+    <li>即時價格抓不到時（例如資料代理無法連線），整列沿用排程資料，表格下方會註明。台灣報酬指數、加權指數只隨排程更新。</li>
+  </ul>
   <h3>為什麼兩者數字不同</h3>
   <ul>
     <li><b>股息的複利</b>：「再投入」假設股息在除息日就買回，之後跟著漲跌。除息後到年底若上漲，「再投入」較高；若下跌，「不再投入」較高。配息越多、越頻繁（月配、季配），差距越大；不配息的標的兩者相同。<br>
@@ -252,7 +258,7 @@ function body() {
     `顯示 ${rows.length} / ${DATA.rows.length} 檔 · 勾選 ${pk.size} · 今年為年初至今，斜體＝上市當年`;
   document.querySelector('#t tfoot').innerHTML =
     `<tr><td colspan="${vc.length + 1}"><div><b>資料時間</b>　${marketText(rows)}` +
-    `<span class="gen">網頁產生於 ${DATA.updated}（台北時間）</span></div></td></tr>`;
+    `<span class="gen">${genText()}</span></div></td></tr>`;
   document.getElementById('onlyPicked').classList.toggle('on', S.mode === 'only');
   document.getElementById('hidePicked').classList.toggle('on', S.mode === 'hide');
   save();
@@ -387,8 +393,8 @@ async function exportImage() {
   const font = cs => `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
   const bodyFont = font(getComputedStyle(document.body));
   const title = `各年度含息報酬率（近 ${S.span} 年，${methodName()}）`;
-  const sub = document.getElementById('info').textContent.split(' · ')[0] + `　網頁產生於 ${DATA.updated}（台北時間）`;
-  const foot = document.querySelector('#t tfoot td').textContent.replace(/網頁產生於.*$/, '').trim();
+  const sub = document.getElementById('info').textContent.split(' · ')[0];
+  const foot = document.querySelector('#t tfoot td').textContent.replace(genText(), '').trim() + '　' + genText();
   const src = /^https?:/.test(location.href) ? location.href.split('#')[0] : '';
   const cv = document.createElement('canvas'), g = cv.getContext('2d');
   // 頁尾文字依寬度換行
@@ -489,23 +495,8 @@ function marketTextOf(m) {
 function histGet() { try { return JSON.parse(localStorage.getItem('etf-hist')) || {}; } catch (e) { return {}; } }
 function histSet(h) { try { localStorage.setItem('etf-hist', JSON.stringify(h)); } catch (e) {} }
 
-// 與 build.py analyze 相同的計算
-async function analyzeJS(it) {
-  // 已結束年度的報酬率記在瀏覽器（etf-hist），有缺的年度才抓長期資料
-  const key = it.代碼 + (it.Yahoo代號 ? '|' + it.Yahoo代號 : '');
-  const cached = histGet()[key] || {}, done = cached.returns || {};
-  // 舊記錄沒有「股息不再投入」報酬率（s）的年度也要重算
-  const missing = years.slice(1).filter(y => !done[y] || (done[y].v != null && done[y].s == null));
-  const recent = Math.floor(Date.now() / 1000) - 400 * 86400;
-  const p1 = missing.length ? Math.min(Math.floor(new Date(Math.min(...missing) - 1, 11, 1) / 1000), recent) : recent;
-  const p2 = Math.floor(Date.now() / 1000) + 86400;
-  let data = null, sym = null;
-  for (const s of WL.symbolsFor(it)) {
-    data = await WL.chart(s, `period1=${p1}&period2=${p2}&interval=1d&events=div%7Csplit`).catch(() => null);
-    if (data) { sym = s; break; }
-  }
-  const out = {...it, custom:true};
-  if (!data) return {...out, error:'查無資料'};
+// 解析 Yahoo 日K：補上漏掉的分割調整、缺的最後一根日K（與 build.py analyze 相同）
+function parseChart(data) {
   const meta = data.meta, off = meta.gmtoffset ?? 28800;
   const q = data.indicators.quote[0].close, a = data.indicators.adjclose[0].adjclose;
   const pts = [];
@@ -514,11 +505,11 @@ async function analyzeJS(it) {
     const d = new Date((t + off) * 1000);
     pts.push({y:d.getUTCFullYear(), m:d.getUTCMonth() + 1, day:d.toISOString().slice(0, 10), c:q[i], a:a[i]});
   });
-  if (!pts.length) return {...out, error:'查無資料'};
   const divs = Object.values((data.events || {}).dividends || {}).map(ev => {
     const d = new Date((ev.date + off) * 1000);
     return {y:d.getUTCFullYear(), day:d.toISOString().slice(0, 10), v:ev.amount};
   });
+  if (!pts.length) return {meta, off, pts, divs};
   // Yahoo 漏掉的分割調整（收盤價與當時的配息金額同樣調整）
   const splitN = r => { const n = r > 1 ? Math.round(r) : 1 / Math.round(1 / r); return (r > 1.6 || r < 0.6) && Math.abs(r / n - 1) < 0.12 ? n : 0; };
   for (let i = pts.length - 1; i > 0; i--) {
@@ -539,6 +530,28 @@ async function analyzeJS(it) {
       pts.push({y:dn.getUTCFullYear(), m:dn.getUTCMonth() + 1, day:dayNow, c:lastPx, a:lp.a * (lastPx + div) / lp.c});
     }
   }
+  return {meta, off, pts, divs};
+}
+
+// 與 build.py analyze 相同的計算
+async function analyzeJS(it) {
+  // 已結束年度的報酬率記在瀏覽器（etf-hist），有缺的年度才抓長期資料
+  const key = it.代碼 + (it.Yahoo代號 ? '|' + it.Yahoo代號 : '');
+  const cached = histGet()[key] || {}, done = cached.returns || {};
+  // 舊記錄沒有「股息不再投入」報酬率（s）的年度也要重算
+  const missing = years.slice(1).filter(y => !done[y] || (done[y].v != null && done[y].s == null));
+  const recent = Math.floor(Date.now() / 1000) - 400 * 86400;
+  const p1 = missing.length ? Math.min(Math.floor(new Date(Math.min(...missing) - 1, 11, 1) / 1000), recent) : recent;
+  const p2 = Math.floor(Date.now() / 1000) + 86400;
+  let data = null, sym = null;
+  for (const s of WL.symbolsFor(it)) {
+    data = await WL.chart(s, `period1=${p1}&period2=${p2}&interval=1d&events=div%7Csplit`).catch(() => null);
+    if (data) { sym = s; break; }
+  }
+  const out = {...it, custom:true};
+  if (!data) return {...out, error:'查無資料'};
+  const {meta, off, pts, divs} = parseChart(data);
+  if (!pts.length) return {...out, error:'查無資料'};
   const mt = marketTime(meta);
   out.symbol = sym;
   out._m = mt;
@@ -597,6 +610,51 @@ function mergeMarket(m) {
   DATA.markets = DATA.markets || {};
   const cur = DATA.markets[m.market];
   if (!cur || m.ts > cur.ts) DATA.markets[m.market] = {ts:m.ts, text:marketTextOf(m)};
+}
+
+// ---- 即時更新：打開網頁時抓預設項目的最新價格，重算現價、漲跌與今年報酬率；歷年報酬率沿用排程資料 ----
+const LIVE = {state:'loading', at:'', ok:0, fail:0};
+const nowTPE = () => fmtTs(Math.floor(Date.now() / 1000), 28800);
+function genText() {
+  const sched = `排程更新於 ${DATA.updated}（台北時間）`;
+  if (LIVE.state === 'loading') return `${sched}　即時價格載入中…`;
+  if (LIVE.state === 'off' || !LIVE.ok) return `${sched}　即時價格無法取得，全部沿用排程資料`;
+  return `現價與今年報酬率即時更新於 ${LIVE.at}（台北時間）　歷年報酬率${sched}` +
+    (LIVE.fail ? `　${LIVE.fail} 檔即時更新失敗，沿用排程資料` : '');
+}
+async function liveQuote(r) {
+  const y = years[0];
+  // 固定的查詢參數讓 Worker 快取可以共用（約 5 分鐘）；一年的範圍一定涵蓋去年底
+  const data = await WL.chart(r.symbol, 'range=1y&interval=1d&events=div%7Csplit');
+  if (!data) throw new Error('查無資料');
+  const {meta, pts, divs} = parseChart(data);
+  const cur = pts.filter(p => p.y === y), prev = pts.filter(p => p.y === y - 1);
+  if (!cur.length || pts.length < 2) throw new Error('今年尚無資料');
+  const end = cur[cur.length - 1], base = prev.length ? prev[prev.length - 1] : cur[0];
+  const div = divs.reduce((s, dv) => dv.y === y && dv.day > base.day && dv.day <= end.day ? s + dv.v : s, 0);
+  const ret = {v:(end.a / base.a - 1) * 100, s:((end.c + div) / base.c - 1) * 100};
+  if (!prev.length) ret.partial = true;   // 今年上市
+  r.returns = {...r.returns, [y]:ret};
+  r.price = meta.regularMarketPrice ?? end.c;
+  r.chg = (r.price / pts[pts.length - 2].c - 1) * 100;
+  r.date = end.day;
+  const mt = marketTime(meta);
+  r.mkt = mt.market;
+  mergeMarket(mt);
+}
+async function liveRefresh() {
+  if (!await WL.proxy()) { LIVE.state = 'off'; return body(); }
+  const todo = BASE.filter(r => r.symbol && !r.error && !/^TWSE:/i.test(r.Yahoo代號 || ''));
+  let i = 0;
+  const worker = async () => {   // 同時最多 8 個請求
+    while (i < todo.length) {
+      const r = todo[i++];
+      await liveQuote(r).then(() => LIVE.ok++, () => LIVE.fail++);
+    }
+  };
+  await Promise.all(Array.from({length:8}, worker));
+  LIVE.state = 'done'; LIVE.at = nowTPE();
+  rebuildRows();
 }
 const customRows = {};   // 代碼 → 計算好的自訂項目
 function fillCats() {
@@ -669,6 +727,7 @@ methodEl.addEventListener('change', () => { S.calc = methodEl.value; render(); }
 document.addEventListener('click', closePop);
 document.getElementById('q').addEventListener('input', body);
 loadCustom();
+liveRefresh();
 </script>
 </body>
 </html>
