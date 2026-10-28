@@ -71,6 +71,8 @@
   .pop label:hover { background:#f2f7ff; }
   .pop .ttl { font-weight:600; margin-bottom:6px; }
   .err { color:#c00; }
+  .multi { display:flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--bd); border-radius:4px; background:#fafafa; }
+  .multi label { display:flex; align-items:center; gap:2px; cursor:pointer; }
   #view, #method, #dec { padding:3px 6px; border:1px solid #bbb; border-radius:4px; background:#fafafa; font:inherit; }
   .explain { max-width:760px; margin:20px 0 8px; font-size:13px; color:#444; line-height:1.6; }
   .explain h2 { font-size:15px; margin:0 0 6px; } .explain h3 { font-size:14px; margin:12px 0 4px; }
@@ -95,6 +97,7 @@
 <div id="opts">
 <div class="bar">
   <select id="view" title="切換各年度或近期報酬率"><option value="year">各年度</option><option value="recent">近期</option></select>
+  <span class="multi" title="近三年、近五年的報酬率">近三／五年：<label><input type="checkbox" id="optCum">累積</label><label><input type="checkbox" id="optAnn">年化</label></span>
   <label class="span">年度範圍：近 <b id="spanN"></b> 年 <span id="spanR"></span>
     <input id="span" type="range" min="1" step="1"></label>
   <select id="method" title="報酬率算法（說明見頁面最下方）"><option value="simple">股息不再投入</option><option value="tr">股息再投入</option></select>
@@ -134,7 +137,7 @@
   </dl>
   <h3>近期報酬率</h3>
   <ul>
-    <li>上方選單切換「各年度／近期」。近期包含近一週、近一月、近三月、近半年、近一年，以及近三年、近五年的累積與年化報酬率。</li>
+    <li>上方選單切換「各年度／近期」。近期包含近一週、近一月、近三月、近半年、近一年；近三年、近五年的累積與年化報酬率在「近三／五年」勾選後才顯示（預設不顯示，避免表格太寬）。</li>
     <li><b>起點</b>：以最新收盤日往回推 7 天或 1／3／6／12／36／60 個月（日曆日），取那一天收盤；那天沒開盤就取之前最後一個交易日。例如最新收盤日是 10/28，近一月的起點就是 9/28（或之前最後一個交易日）。</li>
     <li><b>股息</b>：跟著上方的算法切換。不再投入＝（最新價＋期間內除息合計−起點收盤價）÷ 起點收盤價；再投入＝最新還原價 ÷ 起點還原價 − 1。</li>
     <li><b>年化</b>＝(1＋累積報酬率)^(1／年數)−1，也就是換算成平均每年的報酬率。</li>
@@ -192,7 +195,8 @@ const cols = [
     return {sort:v, text:fmtPct(v), partial:x.partial};
   }})),
   // 近期報酬率；n = 年化的年數
-  ...PERIODS.map(([k, label, n]) => ({k:'p' + k, period:true, label, num:true, get:r => {
+  // multi：近三年／近五年的累積（cum）、年化（ann），由查詢選項決定是否顯示
+  ...PERIODS.map(([k, label, n]) => ({k:'p' + k, period:true, multi:n ? 'ann' : /^y[35]$/.test(k) ? 'cum' : null, label, num:true, get:r => {
     const x = r.recent && r.recent[n ? k.slice(0, 2) : k];
     if (!x) return {sort:null, text:'(空白)'};
     if (x.note) return {sort:null, text:x.note};
@@ -216,6 +220,8 @@ delete S.method;                    // 舊版欄位（當時預設再投入）
 S.calc = S.calc || 'simple';        // 'simple' 股息不再投入（預設）| 'tr' 股息再投入
 S.dec = S.dec === 2 ? 2 : 1;        // 小數位數，預設 1 位
 S.view = S.view === 'recent' ? 'recent' : 'year';   // 'year' 各年度 | 'recent' 近期
+S.cum = !!S.cum; S.ann = !!S.ann;    // 近期是否顯示近三年／近五年的累積、年化（預設不顯示，避免太寬）
+const needLong = () => S.view === 'recent' && (S.cum || S.ann);   // 要近五年的資料
 const methodName = () => S.calc === 'simple' ? '股息不再投入' : '股息再投入';
 const MAX_SPAN = Math.min(10, years.length);
 S.span = Math.min(S.span || 3, MAX_SPAN);   // 報酬率年度範圍，預設近三年
@@ -223,7 +229,8 @@ if (S.collapsed == null) S.collapsed = innerWidth < 600;   // 查詢選項區收
 function load() { try { return JSON.parse(localStorage.getItem('etf-state')); } catch (e) { return null; } }
 function save() { try { localStorage.setItem('etf-state', JSON.stringify(S)); } catch (e) {} }
 
-const inView = c => c.year ? S.view === 'year' && c.year > years[0] - S.span : c.period ? S.view === 'recent' : true;
+const inView = c => c.year ? S.view === 'year' && c.year > years[0] - S.span
+  : c.period ? S.view === 'recent' && (!c.multi || S[c.multi]) : true;
 const defaultSort = () => S.view === 'recent' ? 'py1' : 'y' + years[0];
 const visCols = () => cols.filter(c => inView(c) && !S.hiddenCols.includes(c.k));
 const picked = () => new Set(S.picked);
@@ -299,6 +306,7 @@ function body() {
     `顯示 ${rows.length} / ${DATA.rows.length} 檔 · 勾選 ${pk.size} · ` +
     (S.view === 'recent' ? '近期＝最新收盤日往回推算，年化＝換算成平均每年' : '今年為年初至今，斜體＝上市當年');
   document.querySelector('.span').style.display = S.view === 'recent' ? 'none' : '';
+  document.querySelector('.multi').style.display = S.view === 'recent' ? '' : 'none';
   document.querySelector('#t tfoot').innerHTML =
     `<tr><td colspan="${vc.length + 1}"><div><b>資料時間</b>　${marketText(rows)}` +
     `<span class="gen">${genText()}</span></div></td></tr>`;
@@ -498,8 +506,8 @@ async function exportImage() {
 }
 document.getElementById('expBtn').onclick = () => exportImage().catch(e => alert('匯出失敗：' + e.message));
 document.getElementById('reset').onclick = () => {
-  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, calc:'simple', dec:1, view:'year'});
-  spanEl.value = 3; methodEl.value = 'simple'; decEl.value = '1'; viewEl.value = 'year';
+  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, calc:'simple', dec:1, view:'year', cum:false, ann:false});
+  spanEl.value = 3; methodEl.value = 'simple'; decEl.value = '1'; viewEl.value = 'year'; cumEl.checked = annEl.checked = false;
   document.getElementById('q').value = ''; render();
 };
 // ---- 個人追蹤清單（watchlist.js，與「我的追蹤清單」頁同步）----
@@ -714,7 +722,7 @@ async function liveQuote(r, long) {
 }
 async function liveRefresh() {
   if (!await WL.proxy()) { LIVE.state = 'off'; return body(); }
-  const long = S.view === 'recent';
+  const long = needLong();
   Object.assign(LIVE, {state:'loading', ok:0, fail:0});
   body();
   const todo = BASE.filter(r => r.symbol && !r.error && !/^TWSE:/i.test(r.Yahoo代號 || ''));
@@ -801,8 +809,14 @@ const viewEl = document.getElementById('view');
 viewEl.value = S.view;
 viewEl.addEventListener('change', () => {
   S.view = viewEl.value; render();
-  if (S.view === 'recent' && LIVE.state === 'done' && !LIVE.long) liveRefresh();   // 近三年、近五年需要較長的資料
+  if (needLong() && LIVE.state === 'done' && !LIVE.long) liveRefresh();   // 近三年、近五年需要較長的資料
 });
+const cumEl = document.getElementById('optCum'), annEl = document.getElementById('optAnn');
+cumEl.checked = S.cum; annEl.checked = S.ann;
+[cumEl, annEl].forEach(el => el.addEventListener('change', () => {
+  S.cum = cumEl.checked; S.ann = annEl.checked; render();
+  if (needLong() && LIVE.state === 'done' && !LIVE.long) liveRefresh();
+}));
 const decEl = document.getElementById('dec');
 decEl.value = S.dec;
 decEl.addEventListener('change', () => {
