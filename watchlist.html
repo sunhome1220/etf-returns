@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2c7a3f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ETF報酬率">
 <title>我的追蹤清單</title>
 <style>
   :root { --bd:#d9d9d9; --green:#2c7a3f; --text:#222; --muted:#666; }
@@ -62,7 +68,7 @@
   </nav>
 </header>
 <main>
-  <h1>我的追蹤清單</h1>
+  <h1>我的追蹤清單<span data-install></span></h1>
   <p class="lead">清單只存在你的瀏覽器，「各年度含息報酬率」會依此清單顯示並即時同步。換電腦或瀏覽器時可用「匯出 / 匯入」搬移。</p>
 
   <div class="box">
@@ -223,5 +229,6 @@ $('ar').innerHTML += REGIONS.map(r => `<option>${r}</option>`).join('');
 WL.loadBase().then(b => { BASE = b; render(); })
   .catch(e => { $('tb').innerHTML = `<tr><td colspan="6" class="empty">${esc(e.message)}</td></tr>`; });
 </script>
+<script src="app.js"></script>
 </body>
 </html>

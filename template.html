@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2c7a3f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ETF報酬率">
 <title>各年度含息報酬率</title>
 <style>
   :root { --bd:#d9d9d9; --hd:#f3f3f3; --active:#efe3ef; --up:#e0218a; --low:#1f4fbf; --down:#2e8b3d; }
@@ -65,7 +71,7 @@
   .pop label:hover { background:#f2f7ff; }
   .pop .ttl { font-weight:600; margin-bottom:6px; }
   .err { color:#c00; }
-  #method, #dec { padding:3px 6px; border:1px solid #bbb; border-radius:4px; background:#fafafa; font:inherit; }
+  #view, #method, #dec { padding:3px 6px; border:1px solid #bbb; border-radius:4px; background:#fafafa; font:inherit; }
   .explain { max-width:760px; margin:20px 0 8px; font-size:13px; color:#444; line-height:1.6; }
   .explain h2 { font-size:15px; margin:0 0 6px; } .explain h3 { font-size:14px; margin:12px 0 4px; }
   .explain dt { font-weight:600; margin-top:6px; } .explain dd { margin:0 0 0 1em; }
@@ -85,9 +91,10 @@
 <body>
 <h1><a href="./" class="home" title="回首頁">投資工具</a> › 各年度含息報酬率
   <a href="watchlist.html" class="home sub">我的追蹤清單</a>
-  <button id="optBtn"></button></h1>
+  <button id="optBtn"></button><span data-install></span></h1>
 <div id="opts">
 <div class="bar">
+  <select id="view" title="切換各年度或近期報酬率"><option value="year">各年度</option><option value="recent">近期</option></select>
   <label class="span">年度範圍：近 <b id="spanN"></b> 年 <span id="spanR"></span>
     <input id="span" type="range" min="1" step="1"></label>
   <select id="method" title="報酬率算法（說明見頁面最下方）"><option value="simple">股息不再投入</option><option value="tr">股息再投入</option></select>
@@ -125,9 +132,17 @@
       公式：該年最後還原收盤價 ÷ 前一年最後還原收盤價 − 1<br>
       <span class="warn">這是理想化的假設：實際上股息要到發放日（通常是除息後 3～6 週）才入帳，入帳後買回的價格也和除息日不同，所以真正自己再投入的結果和這個數字會有落差。</span></dd>
   </dl>
+  <h3>近期報酬率</h3>
+  <ul>
+    <li>上方選單切換「各年度／近期」。近期包含近一週、近一月、近三月、近半年、近一年，以及近三年、近五年的累積與年化報酬率。</li>
+    <li><b>起點</b>：以最新收盤日往回推 7 天或 1／3／6／12／36／60 個月（日曆日），取那一天收盤；那天沒開盤就取之前最後一個交易日。例如最新收盤日是 10/28，近一月的起點就是 9/28（或之前最後一個交易日）。</li>
+    <li><b>股息</b>：跟著上方的算法切換。不再投入＝（最新價＋期間內除息合計−起點收盤價）÷ 起點收盤價；再投入＝最新還原價 ÷ 起點還原價 − 1。</li>
+    <li><b>年化</b>＝(1＋累積報酬率)^(1／年數)−1，也就是換算成平均每年的報酬率。</li>
+    <li>上市時間比期間短的顯示「上市未滿」。</li>
+  </ul>
   <h3>資料更新方式</h3>
   <ul>
-    <li><b>即時</b>：打開網頁時，透過資料代理向 Yahoo 抓最新價格，重算「現價」「最後交易日漲跌」與<b>今年</b>的報酬率（盤中為當下成交價，約有 5 分鐘快取）。完成時間顯示在表格下方「現價與今年報酬率即時更新於…」。</li>
+    <li><b>即時</b>：打開網頁時，透過資料代理向 Yahoo 抓最新價格，重算「現價」「最後交易日漲跌」、<b>今年</b>與<b>近期</b>報酬率（盤中為當下成交價，約有 5 分鐘快取）。完成時間顯示在表格下方「現價與報酬率即時更新於…」。</li>
     <li><b>排程</b>：過去年度的報酬率不會再變，由 GitHub 排程每個平日執行兩次（台北約 15:17 台股收盤後、06:17 美股收盤後；GitHub 排程常會延遲數小時）。表格下方「排程更新於…」是排程實際執行完成的時間。</li>
     <li>即時價格抓不到時（例如資料代理無法連線），整列沿用排程資料，表格下方會註明。台灣報酬指數、加權指數只隨排程更新。</li>
   </ul>
@@ -140,6 +155,13 @@
     <li><b>上市當年</b>（斜體）：從上市第一天收盤價起算，不是從前一年底。</li>
     <li><b>指數</b>：台灣報酬指數本身已含息再投入，加權指數不含息；兩者不受此切換影響。</li>
   </ul>
+  <h3>手機 App</h3>
+  <ul>
+    <li><b>iPhone／iPad</b>：用 Safari 打開本頁 → 分享按鈕 → 「加入主畫面」。</li>
+    <li><b>Android</b>：用 Chrome 打開本頁 → 標題旁的「安裝 App」（或選單 → 「安裝應用程式」／「加到主畫面」）。</li>
+    <li>網站有更新時，打開後會顯示更新內容；App 開著時有新版本，回到 App 會出現「網站有新版本，點這裡更新」。<a href="#" onclick="showChangelog(); return false">查看更新紀錄</a></li>
+    <li>App 從背景回到前景超過 10 分鐘，會自動重新抓最新價格。</li>
+  </ul>
 </section>
 
 <script src="watchlist.js"></script>
@@ -150,6 +172,9 @@ const years = DATA.years;
 const fmtNum = v => v >= 10000 ? v.toLocaleString('en-US', {minimumFractionDigits:S.dec, maximumFractionDigits:S.dec}) : v.toFixed(S.dec);
 const fmtPct = v => v.toFixed(S.dec) + '%';
 
+const pickV = x => S.calc === 'simple' && x.s != null ? x.s : x.v;   // 指數等沒有 s 的沿用 v
+const PERIODS = [['w1', '近一週'], ['m1', '近一月'], ['m3', '近三月'], ['m6', '近半年'], ['y1', '近一年'],
+  ['y3', '近三年<br>累積'], ['y3a', '近三年<br>年化', 3], ['y5', '近五年<br>累積'], ['y5a', '近五年<br>年化', 5]];
 // 每個欄位：sort = 排序值，text = 顯示/篩選文字
 const cols = [
   {k:'區', label:'區域', get:r => ({sort:r.區, text:r.區})},
@@ -163,8 +188,18 @@ const cols = [
     const x = r.returns && r.returns[y];
     if (!x) return {sort:null, text:'(空白)'};
     if (x.note) return {sort:null, text:x.note};
-    const v = S.calc === 'simple' && x.s != null ? x.s : x.v;   // 指數等沒有 s 的沿用 v
+    const v = pickV(x);
     return {sort:v, text:fmtPct(v), partial:x.partial};
+  }})),
+  // 近期報酬率；n = 年化的年數
+  ...PERIODS.map(([k, label, n]) => ({k:'p' + k, period:true, label, num:true, get:r => {
+    const x = r.recent && r.recent[n ? k.slice(0, 2) : k];
+    if (!x) return {sort:null, text:'(空白)'};
+    if (x.note) return {sort:null, text:x.note};
+    let v = pickV(x);
+    if (v == null) return {sort:null, text:'(空白)'};
+    if (n) v = (Math.pow(1 + v / 100, 1 / n) - 1) * 100;
+    return {sort:v, text:fmtPct(v)};
   }})),
 ];
 const colByKey = Object.fromEntries(cols.map(c => [c.k, c]));
@@ -180,6 +215,7 @@ S.hiddenCols = S.hiddenCols || [];
 delete S.method;                    // 舊版欄位（當時預設再投入）
 S.calc = S.calc || 'simple';        // 'simple' 股息不再投入（預設）| 'tr' 股息再投入
 S.dec = S.dec === 2 ? 2 : 1;        // 小數位數，預設 1 位
+S.view = S.view === 'recent' ? 'recent' : 'year';   // 'year' 各年度 | 'recent' 近期
 const methodName = () => S.calc === 'simple' ? '股息不再投入' : '股息再投入';
 const MAX_SPAN = Math.min(10, years.length);
 S.span = Math.min(S.span || 3, MAX_SPAN);   // 報酬率年度範圍，預設近三年
@@ -187,8 +223,9 @@ if (S.collapsed == null) S.collapsed = innerWidth < 600;   // 查詢選項區收
 function load() { try { return JSON.parse(localStorage.getItem('etf-state')); } catch (e) { return null; } }
 function save() { try { localStorage.setItem('etf-state', JSON.stringify(S)); } catch (e) {} }
 
-const inSpan = c => !c.year || c.year > years[0] - S.span;
-const visCols = () => cols.filter(c => inSpan(c) && !S.hiddenCols.includes(c.k));
+const inView = c => c.year ? S.view === 'year' && c.year > years[0] - S.span : c.period ? S.view === 'recent' : true;
+const defaultSort = () => S.view === 'recent' ? 'py1' : 'y' + years[0];
+const visCols = () => cols.filter(c => inView(c) && !S.hiddenCols.includes(c.k));
 const picked = () => new Set(S.picked);
 
 function passFilter(r, c, f) {
@@ -202,7 +239,7 @@ function filtered(exceptKey) {
   const q = document.getElementById('q').value.trim().toLowerCase();
   const pk = picked();
   return DATA.rows.filter(r =>
-    Object.entries(S.filters).every(([k, f]) => k === exceptKey || !colByKey[k] || !inSpan(colByKey[k]) || passFilter(r, colByKey[k], f)) &&
+    Object.entries(S.filters).every(([k, f]) => k === exceptKey || !colByKey[k] || !inView(colByKey[k]) || passFilter(r, colByKey[k], f)) &&
     (!q || (r.代碼 + r.名稱).toLowerCase().includes(q)) &&
     (S.mode !== 'only' || pk.has(r.代碼)) &&
     (S.mode !== 'hide' || !pk.has(r.代碼)));
@@ -217,10 +254,10 @@ function cmp(c, dir) {
 
 function head() {
   const vc = visCols();
-  const nYear = vc.filter(c => c.year).length;
+  const nYear = vc.filter(c => c.year || c.period).length;
   const th = vc.map(c => {
     const s = S.sortKey === c.k ? (S.sortDir < 0 ? '▼' : '▲') : '⇅';
-    return `<th${c.year ? ' class="yr"' : ''}><div class="h"><span class="tools"><span class="s" data-sort="${c.k}">${s}</span>` +
+    return `<th${c.year || c.period ? ' class="yr"' : ''}><div class="h"><span class="tools"><span class="s" data-sort="${c.k}">${s}</span>` +
       `<button class="f${S.filters[c.k] ? ' on' : ''}" data-f="${c.k}" title="篩選">▾</button></span>` +
       `<span class="lbl" data-sort="${c.k}">${c.label}</span></div></th>`;
   }).join('');
@@ -228,7 +265,7 @@ function head() {
   const allOn = DATA.rows.length && DATA.rows.every(r => pk.has(r.代碼));
   document.querySelector('#t thead').innerHTML =
     `<tr class="group"><th style="border:none"></th><th colspan="${vc.length - nYear}" style="border:none"></th>` +
-    (nYear ? `<th colspan="${nYear}">各年度含息報酬率（${methodName()}）</th>` : '') + `</tr>` +
+    (nYear ? `<th colspan="${nYear}">${S.view === 'recent' ? '近期' : '各年度'}含息報酬率（${methodName()}）</th>` : '') + `</tr>` +
     `<tr class="cols"><th><input type="checkbox" id="pickAll" title="全選/全不選" ${allOn ? 'checked' : ''}></th>${th}</tr>`;
 }
 
@@ -249,7 +286,7 @@ function cell(c, r) {
 }
 
 function body() {
-  const sc = colByKey[S.sortKey] && inSpan(colByKey[S.sortKey]) ? colByKey[S.sortKey] : colByKey['y' + years[0]];
+  const sc = colByKey[S.sortKey] && inView(colByKey[S.sortKey]) ? colByKey[S.sortKey] : colByKey[defaultSort()];
   const rows = filtered().sort(cmp(sc, S.sortDir));
   document.getElementById('spanN').textContent = S.span;
   document.getElementById('spanR').textContent = S.span > 1 ? `(${years[0] - S.span + 1}–${years[0]})` : `(${years[0]})`;
@@ -259,7 +296,9 @@ function body() {
     `<button class="rm" data-rm="${r.代碼}" title="從我的清單移除">✕</button></td>` +
     vc.map(c => cell(c, r)).join('') + `</tr>`).join('');
   document.getElementById('info').textContent =
-    `顯示 ${rows.length} / ${DATA.rows.length} 檔 · 勾選 ${pk.size} · 今年為年初至今，斜體＝上市當年`;
+    `顯示 ${rows.length} / ${DATA.rows.length} 檔 · 勾選 ${pk.size} · ` +
+    (S.view === 'recent' ? '近期＝最新收盤日往回推算，年化＝換算成平均每年' : '今年為年初至今，斜體＝上市當年');
+  document.querySelector('.span').style.display = S.view === 'recent' ? 'none' : '';
   document.querySelector('#t tfoot').innerHTML =
     `<tr><td colspan="${vc.length + 1}"><div><b>資料時間</b>　${marketText(rows)}` +
     `<span class="gen">${genText()}</span></div></td></tr>`;
@@ -342,7 +381,7 @@ function openFilter(k, btn) {
 function openCols(btn) {
   const pop = popAt(btn, `<div class="ttl">顯示欄位</div>
     <div class="row"><button data-a="all">全選</button><button data-a="none">全不選</button></div>
-    <div class="list">${cols.filter(inSpan).map(c =>
+    <div class="list">${cols.filter(inView).map(c =>
       `<label><input type="checkbox" value="${c.k}" ${S.hiddenCols.includes(c.k) ? '' : 'checked'}>${c.label.replace('<br>', '')}</label>`).join('')}</div>`);
   const sync = () => { S.hiddenCols = [...pop.querySelectorAll('.list input')].filter(b => !b.checked).map(b => b.value); render(); };
   pop.addEventListener('change', sync);
@@ -396,7 +435,7 @@ async function exportImage() {
   const W = tr0.width - skip, ox = tr0.left + skip;
   const font = cs => `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
   const bodyFont = font(getComputedStyle(document.body));
-  const title = `各年度含息報酬率（近 ${S.span} 年，${methodName()}）`;
+  const title = S.view === 'recent' ? `近期含息報酬率（${methodName()}）` : `各年度含息報酬率（近 ${S.span} 年，${methodName()}）`;
   const sub = document.getElementById('info').textContent.split(' · ')[0];
   const foot = document.querySelector('#t tfoot td').textContent.replace(genText(), '').trim() + '　' + genText();
   const src = /^https?:/.test(location.href) ? location.href.split('#')[0] : '';
@@ -412,7 +451,9 @@ async function exportImage() {
   const how = S.calc === 'simple'
     ? '算法：股息不再投入＝（該年最後收盤價＋當年除息合計−前一年最後收盤價）÷ 前一年最後收盤價；股息領了不再買回，以除息日歸年。'
     : '算法：股息再投入＝該年最後還原收盤價 ÷ 前一年最後還原收盤價 − 1；假設股息於除息日以當日價格買回（同報酬指數，實際入帳會晚數週）。';
-  const howLines = wrap(how + '今年為年初至今；斜體＝上市當年，從上市首日收盤起算。', '12px ' + getComputedStyle(document.body).fontFamily);
+  const howLines = wrap(how + (S.view === 'recent'
+    ? '近期：以最新收盤日往回推 7 天、1／3／6／12／36／60 個月，起點取該日或之前最後一個交易日收盤；年化＝(1＋累積)^(1/年數)−1。'
+    : '今年為年初至今；斜體＝上市當年，從上市首日收盤起算。'), '12px ' + getComputedStyle(document.body).fontFamily);
   const top = 56, H = top + TB + 10 + howLines.length * 17 + 4 + footLines.length * 14 + (src ? 14 : 0) + PAD;
   cv.width = (W + PAD * 2) * SC; cv.height = H * SC;
   g.scale(SC, SC); g.fillStyle = '#fff'; g.fillRect(0, 0, W + PAD * 2, H);
@@ -457,8 +498,8 @@ async function exportImage() {
 }
 document.getElementById('expBtn').onclick = () => exportImage().catch(e => alert('匯出失敗：' + e.message));
 document.getElementById('reset').onclick = () => {
-  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, calc:'simple', dec:1});
-  spanEl.value = 3; methodEl.value = 'simple'; decEl.value = '1';
+  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:[], span:3, calc:'simple', dec:1, view:'year'});
+  spanEl.value = 3; methodEl.value = 'simple'; decEl.value = '1'; viewEl.value = 'year';
   document.getElementById('q').value = ''; render();
 };
 // ---- 個人追蹤清單（watchlist.js，與「我的追蹤清單」頁同步）----
@@ -499,6 +540,27 @@ function marketTextOf(m) {
 function histGet() { try { return JSON.parse(localStorage.getItem('etf-hist')) || {}; } catch (e) { return {}; } }
 function histSet(h) { try { localStorage.setItem('etf-hist', JSON.stringify(h)); } catch (e) {} }
 
+// 近期報酬率（與 build.py recent_returns 相同）：以最新收盤日往回推日曆日，起點取該日或之前最後一個交易日收盤
+const PERIOD_DEF = {w1:[0, 7], m1:[1, 0], m3:[3, 0], m6:[6, 0], y1:[12, 0], y3:[36, 0], y5:[60, 0]};
+function periodTarget(day, months, days) {
+  const [y, m, d] = day.split('-').map(Number);
+  if (days) return new Date(Date.UTC(y, m - 1, d) - days * 864e5).toISOString().slice(0, 10);
+  const t = new Date(Date.UTC(y, m - 1 - months, 1));
+  t.setUTCDate(Math.min(d, new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate()));
+  return t.toISOString().slice(0, 10);
+}
+function recentReturns(pts, divs, keys = Object.keys(PERIOD_DEF)) {
+  const end = pts[pts.length - 1], out = {};
+  for (const k of keys) {
+    const t = periodTarget(end.day, ...PERIOD_DEF[k]);
+    let start = null;
+    for (const p of pts) { if (p.day > t) break; start = p; }
+    if (!start) { out[k] = {note:'上市未滿'}; continue; }
+    const div = divs.reduce((s, dv) => dv.day > start.day && dv.day <= end.day ? s + dv.v : s, 0);
+    out[k] = {v:(end.a / start.a - 1) * 100, s:((end.c + div) / start.c - 1) * 100};
+  }
+  return out;
+}
 // 解析 Yahoo 日K：補上漏掉的分割調整、缺的最後一根日K（與 build.py analyze 相同）
 function parseChart(data) {
   const meta = data.meta, off = meta.gmtoffset ?? 28800;
@@ -544,7 +606,7 @@ async function analyzeJS(it) {
   const cached = histGet()[key] || {}, done = cached.returns || {};
   // 舊記錄沒有「股息不再投入」報酬率（s）的年度也要重算
   const missing = years.slice(1).filter(y => !done[y] || (done[y].v != null && done[y].s == null));
-  const recent = Math.floor(Date.now() / 1000) - 400 * 86400;
+  const recent = Math.floor(Date.now() / 1000) - (5 * 366 + 20) * 86400;   // 近期報酬率最長五年
   const p1 = missing.length ? Math.min(Math.floor(new Date(Math.min(...missing) - 1, 11, 1) / 1000), recent) : recent;
   const p2 = Math.floor(Date.now() / 1000) + 86400;
   let data = null, sym = null;
@@ -594,6 +656,7 @@ async function analyzeJS(it) {
   for (const y of years) { const v = fresh[y] || done[y]; if (v) out.returns[y] = v; }
   // 只記錄已結束、且資料已跨到下一年的年度；寫入前重新讀取，避免多檔同時載入互相覆蓋
   const settled = Object.fromEntries(Object.entries(fresh).filter(([y]) => +y < years[0] && out.date > `${y}-12-31`));
+  out.recent = recentReturns(pts, divs);
   const H = histGet();
   H[key] = {listed:out.listed, from:frm, returns:{...done, ...settled}};
   histSet(H);
@@ -623,13 +686,15 @@ function genText() {
   const sched = `排程更新於 ${DATA.updated}（台北時間）`;
   if (LIVE.state === 'loading') return `${sched}　即時價格載入中…`;
   if (LIVE.state === 'off' || !LIVE.ok) return `${sched}　即時價格無法取得，全部沿用排程資料`;
-  return `現價與今年報酬率即時更新於 ${LIVE.at}（台北時間）　歷年報酬率${sched}` +
+  return `現價與報酬率即時更新於 ${LIVE.at}（台北時間）　歷年報酬率${sched}` +
     (LIVE.fail ? `　${LIVE.fail} 檔即時更新失敗，沿用排程資料` : '');
 }
-async function liveQuote(r) {
+async function liveQuote(r, long) {
   const y = years[0];
-  // 固定的查詢參數讓 Worker 快取可以共用（約 5 分鐘）；一年的範圍一定涵蓋去年底
-  const data = await WL.chart(r.symbol, 'range=1y&interval=1d&events=div%7Csplit');
+  // 起訖固定到「日」，讓 Worker 快取可以共用（約 5 分鐘）。
+  // 一般從前年 12/15 起（涵蓋去年底與近一年）；近期模式要近五年，從六年前 12/15 起
+  const p1 = Date.UTC(y - (long ? 6 : 2), 11, 15) / 1000, p2 = (Math.floor(Date.now() / 864e5) + 1) * 86400;
+  const data = await WL.chart(r.symbol, `period1=${p1}&period2=${p2}&interval=1d&events=div%7Csplit`);
   if (!data) throw new Error('查無資料');
   const {meta, pts, divs} = parseChart(data);
   const cur = pts.filter(p => p.y === y), prev = pts.filter(p => p.y === y - 1);
@@ -639,6 +704,7 @@ async function liveQuote(r) {
   const ret = {v:(end.a / base.a - 1) * 100, s:((end.c + div) / base.c - 1) * 100};
   if (!prev.length) ret.partial = true;   // 今年上市
   r.returns = {...r.returns, [y]:ret};
+  r.recent = {...r.recent, ...recentReturns(pts, divs, long ? undefined : ['w1', 'm1', 'm3', 'm6', 'y1'])};
   r.price = meta.regularMarketPrice ?? end.c;
   r.chg = (r.price / pts[pts.length - 2].c - 1) * 100;
   r.date = end.day;
@@ -648,16 +714,19 @@ async function liveQuote(r) {
 }
 async function liveRefresh() {
   if (!await WL.proxy()) { LIVE.state = 'off'; return body(); }
+  const long = S.view === 'recent';
+  Object.assign(LIVE, {state:'loading', ok:0, fail:0});
+  body();
   const todo = BASE.filter(r => r.symbol && !r.error && !/^TWSE:/i.test(r.Yahoo代號 || ''));
   let i = 0;
   const worker = async () => {   // 同時最多 8 個請求
     while (i < todo.length) {
       const r = todo[i++];
-      await liveQuote(r).then(() => LIVE.ok++, () => LIVE.fail++);
+      await liveQuote(r, long).then(() => LIVE.ok++, () => LIVE.fail++);
     }
   };
   await Promise.all(Array.from({length:8}, worker));
-  LIVE.state = 'done'; LIVE.at = nowTPE();
+  Object.assign(LIVE, {state:'done', at:nowTPE(), long});
   rebuildRows();
 }
 const customRows = {};   // 代碼 → 計算好的自訂項目
@@ -728,6 +797,12 @@ spanEl.addEventListener('input', () => { S.span = +spanEl.value; render(); });
 const methodEl = document.getElementById('method');
 methodEl.value = S.calc;
 methodEl.addEventListener('change', () => { S.calc = methodEl.value; render(); });
+const viewEl = document.getElementById('view');
+viewEl.value = S.view;
+viewEl.addEventListener('change', () => {
+  S.view = viewEl.value; render();
+  if (S.view === 'recent' && LIVE.state === 'done' && !LIVE.long) liveRefresh();   // 近三年、近五年需要較長的資料
+});
 const decEl = document.getElementById('dec');
 decEl.value = S.dec;
 decEl.addEventListener('change', () => {
@@ -740,6 +815,13 @@ document.addEventListener('click', closePop);
 document.getElementById('q').addEventListener('input', body);
 loadCustom();
 liveRefresh();
+// 手機 App 常放在背景：回到前景時若已超過 10 分鐘，重新抓最新價格
+let hiddenSince = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) hiddenSince = Date.now();
+  else if (hiddenSince && Date.now() - hiddenSince > 600000 && LIVE.state !== 'loading') liveRefresh();
+});
 </script>
+<script src="app.js"></script>
 </body>
 </html>
