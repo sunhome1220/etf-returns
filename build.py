@@ -231,6 +231,9 @@ def analyze(row, years, hist=None):
     out["symbol"] = symbol
     out["_market"] = market_time(data["meta"])
     out["_yname"] = data["meta"].get("shortName") or data["meta"].get("longName")
+    # 成立日：Yahoo 該檔最早交易日
+    if data["meta"].get("firstTradeDate"):
+        out["since"] = dt.datetime.utcfromtimestamp(data["meta"]["firstTradeDate"] + off).date().isoformat()
     out["price"] = data["meta"].get("regularMarketPrice", pts[-1][1])
     prev = prev_close(symbol)
     out["chg"] = (out["price"] / prev - 1) * 100 if prev else None
