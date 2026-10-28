@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2c7a3f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ETF報酬率">
 <title>投資工具</title>
 <style>
   :root { --bd:#d9d9d9; --green:#2c7a3f; --text:#222; --muted:#666; --bg:#fff; --card:#fafafa; }
@@ -36,7 +42,7 @@
   </nav>
 </header>
 <main>
-  <h1>功能列表</h1>
+  <h1>功能列表<span data-install></span></h1>
   <p class="lead">選擇上方或下方的功能項目。</p>
   <div class="cards">
     <a class="card" href="returns.html">
@@ -53,5 +59,6 @@
     </a>
   </div>
 </main>
+<script src="app.js"></script>
 </body>
 </html>

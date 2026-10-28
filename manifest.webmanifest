@@ -1,0 +1,16 @@
+{
+  "name": "投資工具・ETF 含息報酬率",
+  "short_name": "ETF報酬率",
+  "description": "台股／ETF 各年度與近期含息報酬率",
+  "lang": "zh-Hant",
+  "start_url": "returns.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2c7a3f",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

@@ -6,6 +6,7 @@
        python build.py --full      (忽略 history.json，全部重算)
 """
 import argparse
+import calendar
 import csv
 import datetime as dt
 import json
@@ -128,6 +129,40 @@ def year_returns(years, end_of, listed, first_val, simple=None):
     return rets
 
 
+# 近期報酬率：以最新收盤日往回推日曆日，起點取該日（或之前最後一個交易日）收盤
+PERIODS = [("w1", 0, 7), ("m1", 1, 0), ("m3", 3, 0), ("m6", 6, 0), ("y1", 12, 0), ("y3", 36, 0), ("y5", 60, 0)]
+
+
+def add_months(d, n):
+    y, m = divmod(d.month - 1 + n, 12)
+    y, m = d.year + y, m + 1
+    return dt.date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
+
+
+def period_target(end, months, days):
+    return end - dt.timedelta(days=days) if days else add_months(end, -months)
+
+
+def recent_returns(pts, divs):
+    """pts = [(date, close, adjclose)] 依日期排序；divs = [(除息日, 金額)]。
+    回傳 {期間: {"v": 再投入, "s": 不再投入}}，資料不足（上市未滿）為 {"note": "上市未滿"}。"""
+    end_d, end_c, end_a = pts[-1]
+    out = {}
+    for k, months, days in PERIODS:
+        t = period_target(end_d, months, days)
+        start = None
+        for p in pts:
+            if p[0] > t:
+                break
+            start = p
+        if start is None:
+            out[k] = {"note": "上市未滿"}
+            continue
+        div = sum(v for d, v in divs if start[0] < d <= end_d)
+        out[k] = {"v": (end_a / start[2] - 1) * 100, "s": ((end_c + div) / start[1] - 1) * 100}
+    return out
+
+
 def analyze(row, years, hist=None):
     hist = {} if hist is None else hist
     key = hist_key(row)
@@ -139,8 +174,8 @@ def analyze(row, years, hist=None):
     # 舊記錄沒有「股息不再投入」報酬率（s）的年度也要重算
     missing = [y for y in years[1:] if str(y) not in done or ("v" in done[str(y)] and "s" not in done[str(y)])]
 
-    # 有缺的年度才抓長期資料；否則只抓近 400 天（今年報酬 + 除息月份）
-    recent = int(dt.datetime.now().timestamp()) - 400 * 86400
+    # 有缺的年度才抓更早的資料；否則抓近五年多（近期報酬率最長五年 + 今年報酬 + 除息月份）
+    recent = int(dt.datetime.now().timestamp()) - (5 * 366 + 20) * 86400
     p1 = min(int(dt.datetime(min(missing) - 1, 12, 1).timestamp()), recent) if missing else recent
     data, symbol = None, None
     for s in yahoo_symbols(row):
@@ -228,6 +263,7 @@ def analyze(row, years, hist=None):
     # 只記錄已結束、且資料已跨到下一年的年度（避免年底最後一根日K尚未到位）
     settled = {y: v for y, v in new.items() if int(y) < years[0] and pts[-1][0] > dt.date(int(y), 12, 31)}
     hist[key] = {"listed": out["listed"], "from": frm, "returns": {**done, **settled}}
+    out["recent"] = recent_returns(pts, divs)
 
     # 除息月份：近一年的除息事件
     if not row.get("除息"):
@@ -306,6 +342,30 @@ def analyze_twse(row, years, hist, key, cached, missing):
     settled = {y: v for y, v in new.items() if int(y) < years[0]}
     hist[key] = {"listed": None, "from": years[-1], "returns": {**done, **settled},
                  "ends": {y: v for y, v in ends.items() if int(y) < years[0]}}
+
+    # 近期報酬率：取各期間起點（該日或之前最後一個交易日）的指數值；指數無另外配息，v 與 s 相同
+    months = {(last_d.year, last_d.month): cur}
+
+    def month(y, m):
+        if (y, m) not in months:
+            try:
+                months[(y, m)] = twse_month(ep, col, y, m)
+            except Exception:
+                months[(y, m)] = None
+        return months[(y, m)]
+
+    def value_on(t):
+        for y, m in ((t.year, t.month), (add_months(t, -1).year, add_months(t, -1).month)):
+            recs = [v for d, v in (month(y, m) or []) if d <= t]
+            if recs:
+                return recs[-1]
+        return None
+
+    out["recent"] = {}
+    for k, mo, days in PERIODS:
+        start = value_on(period_target(last_d, mo, days))
+        r = (last_v / start - 1) * 100 if start else None
+        out["recent"][k] = {"v": r, "s": r} if r is not None else {"note": "無資料"}
 
     close_ts = int(dt.datetime(last_d.year, last_d.month, last_d.day, 13, 30, tzinfo=TPE).timestamp())
     out.update({
