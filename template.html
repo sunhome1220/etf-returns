@@ -223,10 +223,12 @@ const fmtNum = v => v >= 10000 ? v.toLocaleString('en-US', {minimumFractionDigit
 const fmtPct = v => v.toFixed(S.dec) + '%';
 
 const pickV = x => S.calc === 'simple' && x.s != null ? x.s : x.v;   // 指數等沒有 s 的沿用 v
+// 成立前的年度：前一年寫「2025年成立」、更早寫「尚未成立」（舊格式「25年5月成立」「-未成立」一併轉換）
+const noteText = n => n === '-未成立' ? '尚未成立' : n.replace(/^(\d{2})年\d+月成立$/, '20$1年成立');
 function yearValue(r, y) {
   const x = r.returns && r.returns[y];
   if (!x) return {sort:null, text:'(空白)'};
-  if (x.note) return {sort:null, text:x.note};
+  if (x.note) return {sort:null, text:noteText(x.note)};
   const v = pickV(x);
   return {sort:v, text:fmtPct(v), partial:x.partial};
 }
@@ -239,6 +241,8 @@ const cols = [
   {k:'除息', label:'除息', get:r => ({sort:r.除息 || '', text:r.除息 || '(空白)'})},
   {k:'代碼', label:'代碼', get:r => ({sort:r.代碼, text:r.代碼})},
   {k:'名稱', label:'名稱', get:r => ({sort:r.名稱, text:r.名稱})},
+  // 成立年度：Yahoo 該檔最早交易日（firstTradeDate）的年份
+  {k:'since', label:'成立<br>年度', num:true, get:r => r.since ? {sort:+r.since.slice(0, 4), text:r.since.slice(0, 4)} : {sort:null, text:'(空白)'}},
   {k:'price', label:'現價', num:true, get:r => r.error ? {sort:null, text:'(無資料)'} : {sort:r.price, text:fmtNum(r.price)}},
   {k:'chg', label:'最後交易<br>日漲跌', num:true, get:r => r.chg == null ? {sort:null, text:'(無資料)'} : {sort:r.chg, text:fmtPct(r.chg)}},
   ...years.map(y => ({k:'y' + y, year:y, label:String(y), num:true, get:r => yearValue(r, y)})),
@@ -267,9 +271,10 @@ S.picked = S.picked || [];        // 勾選的代碼
 S.mode = S.mode || '';            // '' | 'only' | 'hide'
 S.hiddenCols = S.hiddenCols || [];
 // 手機預設隱藏區域、類別、除息（可從「欄位」叫回）；只在使用者沒自訂過欄位時套用一次
-const MOBILE_HIDDEN = ['區', '類', '除息'];
+const MOBILE_HIDDEN = ['區', '類', '除息', 'since'];
 const defaultHidden = () => innerWidth < 600 ? [...MOBILE_HIDDEN] : [];
-if (S.colsV !== 2) { if (!S.hiddenCols.length) S.hiddenCols = defaultHidden(); S.colsV = 2; }
+if (!S.colsV) { if (!S.hiddenCols.length) S.hiddenCols = defaultHidden(); S.colsV = 3; }
+if (S.colsV === 2) { if (innerWidth < 600 && !S.hiddenCols.includes('since')) S.hiddenCols.push('since'); S.colsV = 3; }   // 新增的成立年度欄，手機預設也隱藏
 delete S.method;                    // 舊版欄位（當時預設再投入）
 S.calc = S.calc || 'simple';        // 'simple' 股息不再投入（預設）| 'tr' 股息再投入
 S.dec = S.dec === 2 ? 2 : 1;        // 小數位數，預設 1 位
@@ -351,6 +356,7 @@ function cell(c, r) {
     case '類': return `<td class="c t-${r.類}">${r.類}</td>`;
     case '除息': return `<td class="c div">${r.除息 || ''}</td>`;
     case '代碼': return `<td>${esc(v.text)}</td>`;
+    case 'since': return `<td class="c"${r.since ? ` title="${r.since}"` : ''}>${r.since ? v.text : ''}</td>`;
     case '名稱': return `<td class="stk" title="${esc(v.text)}"><span class="nm${nameFits(v.text) ? '' : ' sm'}">${esc(v.text)}</span>` +
       `${r.custom ? '<span class="tag">自訂</span>' : ''}</td>`;
     case 'price': return `<td class="r">${r.error ? '' : v.text}</td>`;
@@ -715,6 +721,7 @@ async function analyzeJS(it) {
   const mt = marketTime(meta);
   out.symbol = sym;
   out._m = mt;
+  if (meta.firstTradeDate) out.since = new Date((meta.firstTradeDate + (meta.gmtoffset ?? 28800)) * 1000).toISOString().slice(0, 10);
   out.mkt = mt.market;
   out.price = meta.regularMarketPrice ?? pts[pts.length - 1].c;
   const prev = await WL.chart(sym, 'range=1d&interval=1d').then(d => d && d.meta.chartPreviousClose).catch(() => null);
@@ -739,8 +746,8 @@ async function analyzeJS(it) {
   for (const y of [years[0], ...missing]) {
     const end = lastAdj(y), prv = lastAdj(y - 1);
     if (end == null) {
-      if (listed && listed.y === y + 1) out.returns[y] = {note:`${listed.y % 100}年${listed.m}月成立`};
-      else if (listed && listed.y > y) out.returns[y] = {note:'-未成立'};
+      if (listed && listed.y === y + 1) out.returns[y] = {note:`${listed.y}年成立`};
+      else if (listed && listed.y > y) out.returns[y] = {note:'尚未成立'};
       continue;
     }
     out.returns[y] = prv == null ? {v:(end / first.a - 1) * 100, partial:true} : {v:(end / prv - 1) * 100};
