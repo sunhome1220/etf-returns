@@ -273,14 +273,27 @@ def analyze(row, years, hist=None):
     # 除息月份：近一年的除息事件
     if not row.get("除息"):
         cutoff = pts[-1][0] - dt.timedelta(days=380)
-        months = set()
-        for ev in (data.get("events") or {}).get("dividends", {}).values():
-            d = dt.datetime.utcfromtimestamp(ev["date"] + off).date()
-            if d >= cutoff:
-                months.add(d.month)
-        out["除息"] = "每月" if len(months) >= 9 else (
-            ",".join(str(m) for m in sorted(months)) if months else "無")
+        ds = [d for d, _ in divs if d >= cutoff]
+        out["除息"] = div_months(ds, young=pts[0][0] > cutoff)
     return out
+
+
+def div_months(ds, young):
+    """近一年的除息日 → 「每月」或月份清單。young＝上市未滿一年：除息次數還不夠，依間隔推算
+    （間隔約 1 個月＝每月；固定 3／6 個月＝季配／半年配，補齊整年的月份）。"""
+    months = sorted({d.month for d in ds})
+    if len(months) >= 9:
+        return "每月"
+    idx = sorted({d.year * 12 + d.month - 1 for d in ds})
+    if young and len(idx) >= 2:
+        gaps = {b - a for a, b in zip(idx, idx[1:])}
+        span = idx[-1] - idx[0] + 1
+        if len(idx) >= 3 and max(gaps) <= 2 and len(idx) >= span * 0.75:
+            return "每月"
+        if len(gaps) == 1 and gaps.pop() in (3, 6):
+            step = idx[1] - idx[0]
+            return ",".join(str(m) for m in sorted({(idx[0] + k * step) % 12 + 1 for k in range(12 // step)}))
+    return ",".join(str(m) for m in months) if months else "無"
 
 
 # ---- 證交所指數（stocks.csv 的 Yahoo代號 填 TWSE:IR0001 / TWSE:IX0001）----
