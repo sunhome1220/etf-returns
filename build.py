@@ -429,6 +429,9 @@ def build(rows, years, hist=None):
         results = list(ex.map(lambda r: analyze(r, years, hist), rows))
     markets = {}
     for r in results:
+        # 名稱留空：台股用證交所中文簡稱，否則用 Yahoo 名稱
+        if not r.get("名稱"):
+            r["名稱"] = (re.fullmatch(r"\d{4,6}[A-Z]?", r["代碼"]) and tw_name(r["代碼"])) or r.get("_yname") or r["代碼"]
         finish_row(r, markets)
     return {
         "years": years,
