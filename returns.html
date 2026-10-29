@@ -699,6 +699,21 @@ function parseChart(data) {
   return {meta, off, pts, divs};
 }
 
+// 近一年的除息日 → 「每月」或月份清單（與 build.py div_months 相同）。
+// young＝上市未滿一年：依間隔推算（約 1 個月＝每月；固定 3／6 個月＝季配／半年配，補齊整年的月份）
+function divMonths(days, young) {
+  const months = [...new Set(days.map(d => +d.slice(5, 7)))].sort((a, b) => a - b);
+  if (months.length >= 9) return '每月';
+  const idx = [...new Set(days.map(d => +d.slice(0, 4) * 12 + +d.slice(5, 7) - 1))].sort((a, b) => a - b);
+  if (young && idx.length >= 2) {
+    const gaps = new Set(idx.slice(1).map((v, i) => v - idx[i])), span = idx[idx.length - 1] - idx[0] + 1;
+    if (idx.length >= 3 && Math.max(...gaps) <= 2 && idx.length >= span * 0.75) return '每月';
+    const step = idx[1] - idx[0];
+    if (gaps.size === 1 && (step === 3 || step === 6))
+      return [...new Set(Array.from({length:12 / step}, (_, k) => (idx[0] + k * step) % 12 + 1))].sort((a, b) => a - b).join(',');
+  }
+  return months.length ? months.join(',') : '無';
+}
 // 與 build.py analyze 相同的計算
 async function analyzeJS(it) {
   // 已結束年度的報酬率記在瀏覽器（etf-hist），有缺的年度才抓長期資料
@@ -762,13 +777,8 @@ async function analyzeJS(it) {
   H[key] = {listed:out.listed, from:frm, returns:{...done, ...settled}};
   histSet(H);
   if (!it.除息) {
-    const cutoff = new Date(new Date(out.date) - 380 * 864e5);
-    const months = new Set();
-    Object.values((data.events || {}).dividends || {}).forEach(ev => {
-      const d = new Date((ev.date + off) * 1000);
-      if (d >= cutoff) months.add(d.getUTCMonth() + 1);
-    });
-    out.除息 = months.size >= 9 ? '每月' : months.size ? [...months].sort((x, y) => x - y).join(',') : '無';
+    const cutoff = new Date(new Date(out.date) - 380 * 864e5).toISOString().slice(0, 10);
+    out.除息 = divMonths(divs.filter(dv => dv.day >= cutoff).map(dv => dv.day), first.day > cutoff);
   }
   return out;
 }
