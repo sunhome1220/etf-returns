@@ -141,7 +141,7 @@
   <b>新增代碼</b>
   <input id="ac" placeholder="如 2330、QQQ、VWRA.L" size="16">
   <input id="an" placeholder="名稱（選填）" size="12">
-  <select id="ar"><option value="">區域（自動）</option><option>台灣</option><option>美國</option><option>陸港</option><option>全球</option></select>
+  <select id="ar"><option value="">區域（自動）</option><option>台灣</option><option>美國</option><option>陸港</option><option>日本</option><option>全球</option></select>
   <input id="at" list="cats" placeholder="類別（預設 自選）" size="10"><datalist id="cats"></datalist>
   <button id="addBtn">加入</button>
   <button id="restore" style="display:none"></button>
@@ -828,7 +828,8 @@ async function liveRefresh() {
   const long = needLong();
   Object.assign(LIVE, {state:'loading', ok:0, fail:0});
   body();
-  const todo = BASE.filter(r => r.symbol && !r.error && !/^TWSE:/i.test(r.Yahoo代號 || ''));
+  // 指數與改用證交所資料的標的（Yahoo 缺歷史）只隨排程更新
+  const todo = BASE.filter(r => r.symbol && !r.error && r.src !== 'twse' && !/^TWSE:/i.test(r.Yahoo代號 || ''));
   let i = 0;
   const worker = async () => {   // 同時最多 8 個請求
     while (i < todo.length) {
