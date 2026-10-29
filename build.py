@@ -228,6 +228,22 @@ def analyze(row, years, hist=None):
                       if d_last < dt.datetime.utcfromtimestamp(ev["date"] + off).date() <= d_now)
             pts.append((d_now, last_px, a_last * (last_px + div) / c_last))
 
+    # Yahoo 偶爾缺台股新上市標的的歷史日K（最早交易日比資料起點早一週以上，且不是查詢範圍造成的）：
+    # 改用證交所每日收盤價與除息紀錄
+    ftd = meta.get("firstTradeDate")
+    if ftd and symbol.endswith(".TW"):
+        fd = dt.datetime.utcfromtimestamp(ftd + off).date()
+        if fd > dt.date.fromtimestamp(p1) + dt.timedelta(days=7) and (pts[0][0] - fd).days > 7:
+            try:
+                tp, td = twse_series(row["代碼"], fd)
+            except Exception as e:
+                tp, td = [], []
+                print("%s：證交所資料讀取失敗 %s" % (row["代碼"], e))
+            if len(tp) > len(pts):
+                print("%s：Yahoo 缺歷史資料，改用證交所（%s 起 %d 筆、除息 %d 次）" % (row["代碼"], tp[0][0], len(tp), len(td)))
+                pts, divs = tp, td
+                out["src"] = "twse"
+
     out["symbol"] = symbol
     out["_market"] = market_time(data["meta"])
     out["_yname"] = data["meta"].get("shortName") or data["meta"].get("longName")
@@ -316,6 +332,65 @@ def twse_month(ep, col, y, m):
         ry, rm, rd = (int(x) for x in rec[0].split("/"))
         out.append((dt.date(ry + 1911, rm, rd), float(rec[col].replace(",", ""))))
     return out
+
+
+def twse_json(path, **qs):
+    """證交所 rwd API；有流量限制，與指數查詢共用鎖並間隔呼叫。"""
+    url = "https://www.twse.com.tw/rwd/zh/%s?%s&response=json" % (path, "&".join("%s=%s" % kv for kv in qs.items()))
+    with _twse_lock:
+        time.sleep(1)
+        with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30) as r:
+            return json.load(r)
+
+
+def roc_date(s):
+    """民國日期（115/07/17 或 115年07月17日）→ date"""
+    y, m, d = (int(x) for x in re.findall(r"\d+", s)[:3])
+    return dt.date(y + 1911, m, d)
+
+
+def twse_series(code, start):
+    """證交所上市個股／ETF 從 start 起的每日收盤與除息 → (pts, divs)。
+    pts = [(date, 收盤, 還原價)]，還原價依除息自行計算（除息前的價格乘上 1 − 息值 ÷ 前一日收盤）。"""
+    closes = {}
+    y, m, today = start.year, start.month, dt.date.today()
+    while (y, m) <= (today.year, today.month):
+        j = twse_json("afterTrading/STOCK_DAY", date="%04d%02d01" % (y, m), stockNo=code)
+        fields = j.get("fields") or []
+        ci = fields.index("收盤價") if "收盤價" in fields else 6
+        for rec in j.get("data") or []:
+            try:
+                closes[roc_date(rec[0])] = float(rec[ci].replace(",", ""))
+            except (ValueError, IndexError):
+                pass   # 停牌等沒有收盤價的日子
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    days = sorted(d for d in closes if d >= start)
+    if not days:
+        return [], []
+
+    divs = []
+    j = twse_json("exRight/TWT49U", startDate=start.strftime("%Y%m%d"), endDate=today.strftime("%Y%m%d"))
+    fields = j.get("fields") or []
+    if {"資料日期", "股票代號", "權值+息值"} <= set(fields):
+        di, ki, vi = fields.index("資料日期"), fields.index("股票代號"), fields.index("權值+息值")
+        for rec in j.get("data") or []:
+            if str(rec[ki]).strip() == code:
+                try:
+                    divs.append((roc_date(rec[di]), float(str(rec[vi]).replace(",", ""))))
+                except ValueError:
+                    pass
+    divs.sort()
+
+    pts, factor = [], 1.0
+    for d in reversed(days):
+        pts.append((d, closes[d], closes[d] * factor))
+        for dd, v in divs:   # 這天就是除息日：更早的價格要乘上除息調整係數
+            if dd == d:
+                prev = [x for x in days if x < d]
+                if prev:
+                    factor *= 1 - v / closes[prev[-1]]
+    pts.reverse()
+    return pts, divs
 
 
 def analyze_twse(row, years, hist, key, cached, missing):

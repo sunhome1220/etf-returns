@@ -828,7 +828,8 @@ async function liveRefresh() {
   const long = needLong();
   Object.assign(LIVE, {state:'loading', ok:0, fail:0});
   body();
-  const todo = BASE.filter(r => r.symbol && !r.error && !/^TWSE:/i.test(r.Yahoo代號 || ''));
+  // 指數與改用證交所資料的標的（Yahoo 缺歷史）只隨排程更新
+  const todo = BASE.filter(r => r.symbol && !r.error && r.src !== 'twse' && !/^TWSE:/i.test(r.Yahoo代號 || ''));
   let i = 0;
   const worker = async () => {   // 同時最多 8 個請求
     while (i < todo.length) {
