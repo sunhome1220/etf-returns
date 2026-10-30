@@ -195,7 +195,7 @@
     <summary>資料更新方式與時間</summary>
     <div class="body">
   <ul>
-    <li><b>即時</b>：打開網頁時，透過資料代理向 Yahoo 抓最新價格，重算「現價」「最後交易日漲跌」、<b>今年</b>與<b>近期</b>報酬率（盤中為當下成交價，約有 5 分鐘快取）。完成時間顯示在表格下方「現價與報酬率即時更新於…」。</li>
+    <li><b>即時</b>：打開網頁時，重算「現價」「最後交易日漲跌」、<b>今年</b>與<b>近期</b>報酬率。台股用證交所即時報價（延遲約數秒～15 秒），美股、英股用 Yahoo（Yahoo 本身延遲約 15～20 分鐘，另有 5 分鐘快取）。網頁開著時，台股盤中每分鐘、美股與英股開盤時每 5 分鐘自動更新。表格下方「現價與報酬率更新於 10:32（3 分鐘前）」是最後一次成功取得資料的時間，抓不到新資料時會繼續顯示上次成功的時間。</li>
     <li><b>排程</b>：過去年度的報酬率不會再變，由 GitHub 排程每個平日執行兩次（台北約 15:17 台股收盤後、06:17 美股收盤後；GitHub 排程常會延遲數小時）。表格下方「排程更新於…」是排程實際執行完成的時間。</li>
     <li>即時價格抓不到時（例如資料代理無法連線），整列沿用排程資料，表格下方會註明。台灣報酬指數、加權指數只隨排程更新。</li>
   </ul>
@@ -787,27 +787,61 @@ function mergeMarket(m) {
   if (!m || !m.ts) return;
   DATA.markets = DATA.markets || {};
   const cur = DATA.markets[m.market];
-  if (!cur || m.ts > cur.ts) DATA.markets[m.market] = {ts:m.ts, text:marketTextOf(m)};
+  if (!cur || m.ts >= cur.ts) DATA.markets[m.market] = {ts:m.ts, text:marketTextOf(m)};
 }
 
 // ---- 即時更新：打開網頁時抓預設項目的最新價格，重算現價、漲跌與今年報酬率；歷年報酬率沿用排程資料 ----
-const LIVE = {state:'loading', at:'', ok:0, fail:0};
+const LIVE = {state:'loading', at:0, ok:0, fail:0, lastFail:false};
 const nowTPE = () => fmtTs(Math.floor(Date.now() / 1000), 28800);
+function ago(t) {
+  const m = Math.floor((Date.now() - t) / 60000);
+  return m < 1 ? '剛剛' : m < 60 ? `${m} 分鐘前` : `${Math.floor(m / 60)} 小時 ${m % 60} 分鐘前`;
+}
+// 表格下方：最後一次成功取得即時資料的時間（含幾分鐘前），抓不到時仍顯示上次成功的時間
 function genText() {
   const sched = `排程更新於 ${DATA.updated}（台北時間）`;
-  if (LIVE.state === 'loading') return `${sched}　即時價格載入中…`;
-  if (LIVE.state === 'off' || !LIVE.ok) return `${sched}　即時價格無法取得，全部沿用排程資料`;
-  return `現價與報酬率即時更新於 ${LIVE.at}（台北時間）　歷年報酬率${sched}` +
+  if (!LIVE.at) return LIVE.state === 'loading' ? `${sched}　即時價格載入中…` : `${sched}　即時價格無法取得，全部沿用排程資料`;
+  return `現價與報酬率更新於 ${fmtTs(Math.floor(LIVE.at / 1000), 28800).slice(11)}（${ago(LIVE.at)}）` +
+    (LIVE.lastFail ? '，最近一次更新失敗' : '') + `　歷年報酬率${sched}` +
     (LIVE.fail ? `　${LIVE.fail} 檔即時更新失敗，沿用排程資料` : '');
 }
-async function liveQuote(r, long) {
-  const y = years[0];
-  // 起訖固定到「日」，讓 Worker 快取可以共用（約 5 分鐘）。
-  // 一般從前年 12/15 起（涵蓋去年底與近一年）；近期模式要近五年，從六年前 12/15 起
-  const p1 = Date.UTC(y - (long ? 6 : 2), 11, 15) / 1000, p2 = (Math.floor(Date.now() / 864e5) + 1) * 86400;
-  const data = await WL.chart(r.symbol, `period1=${p1}&period2=${p2}&interval=1d&events=div%7Csplit`);
-  if (!data) throw new Error('查無資料');
-  const {meta, pts, divs} = parseChart(data);
+function refreshGenText() {
+  const el = document.querySelector('#t tfoot .gen');
+  if (el) el.textContent = genText();
+}
+
+// ---- 台股即時報價：證交所「基本市況報導」（經資料代理 /mis/，約 15 秒快取）；Worker 未更新時自動略過 ----
+const isTW = r => /\.TWO?$/.test(r.symbol || '');
+async function misQuotes(codes) {
+  const out = {}, px = await WL.proxy();
+  if (!px || !codes.length) return out;
+  for (let i = 0; i < codes.length; i += 30) {
+    const j = await fetch(`${px}/mis/${codes.slice(i, i + 30).join(',')}`).then(r => r.ok ? r.json() : null).catch(() => null);
+    for (const q of (j && j.msgArray) || []) {
+      const num = v => { const n = parseFloat(v); return n > 0 ? n : null; };
+      // 成交價；這一盤還沒成交（-）時用最佳買價
+      const price = num(q.z) ?? num((q.b || '').split('_')[0]);
+      if (!price || !q.d || !q.tlong) continue;
+      const hm = (q.t || '').slice(0, 5);
+      out[q.c] = {price, prev:num(q.y), day:`${q.d.slice(0, 4)}-${q.d.slice(4, 6)}-${q.d.slice(6, 8)}`,
+        ts:Math.floor(+q.tlong / 1000), closed:hm >= '13:30'};
+    }
+  }
+  return out;
+}
+// 用即時報價補上／取代最後一根日K（同日：同比例調整還原價；新的一天：期間除息一併計入）
+function patchPts(pts, divs, q) {
+  const last = pts[pts.length - 1];
+  if (q.day < last.day) return;
+  if (q.day === last.day) { last.a *= q.price / last.c; last.c = q.price; return; }
+  const div = divs.reduce((s, dv) => dv.day > last.day && dv.day <= q.day ? s + dv.v : s, 0);
+  pts.push({y:+q.day.slice(0, 4), m:+q.day.slice(5, 7), day:q.day, c:q.price, a:last.a * (q.price + div) / last.c});
+}
+// 由日K重算現價、漲跌、今年與近期報酬率
+function computeLive(r, src, q) {
+  const y = years[0], long = src.long;
+  const pts = src.pts.map(p => ({...p})), divs = src.divs;
+  if (q) patchPts(pts, divs, q);
   const cur = pts.filter(p => p.y === y), prev = pts.filter(p => p.y === y - 1);
   if (!cur.length || pts.length < 2) throw new Error('今年尚無資料');
   const end = cur[cur.length - 1], base = prev.length ? prev[prev.length - 1] : cur[0];
@@ -816,31 +850,98 @@ async function liveQuote(r, long) {
   if (!prev.length) ret.partial = true;   // 今年上市
   r.returns = {...r.returns, [y]:ret};
   r.recent = {...r.recent, ...recentReturns(pts, divs, long ? undefined : ['w1', 'm1', 'm3', 'm6', 'y1'])};
-  r.price = meta.regularMarketPrice ?? end.c;
-  r.chg = (r.price / pts[pts.length - 2].c - 1) * 100;
+  if (q) {
+    r.price = q.price;
+    r.chg = q.prev ? (q.price / q.prev - 1) * 100 : (q.price / pts[pts.length - 2].c - 1) * 100;
+    mergeMarket({market:'台股', city:'台北', ts:q.ts, closed:q.closed, off:28800});
+    r.mkt = '台股';
+  } else {
+    r.price = src.meta.regularMarketPrice ?? end.c;
+    r.chg = (r.price / pts[pts.length - 2].c - 1) * 100;
+    const mt = marketTime(src.meta);
+    r.mkt = mt.market;
+    mergeMarket(mt);
+  }
   r.date = end.day;
-  const mt = marketTime(meta);
-  r.mkt = mt.market;
-  mergeMarket(mt);
 }
+// 改用證交所歷史資料的標的（Yahoo 缺歷史）：以排程時的價格為基準，依即時價格等比例調整報酬率
+function scaleTwse(r, q) {
+  const b = r._base || (r._base = {price:r.price, returns:JSON.parse(JSON.stringify(r.returns || {})), recent:JSON.parse(JSON.stringify(r.recent || {}))});
+  if (!b.price || !q) return;
+  const k = q.price / b.price, sc = x => x == null ? x : ((1 + x / 100) * k - 1) * 100;
+  const adj = o => o && o.note == null ? {...o, v:sc(o.v), s:sc(o.s)} : o;
+  const y = years[0];
+  r.returns = {...b.returns, [y]:adj(b.returns[y])};
+  r.recent = Object.fromEntries(Object.entries(b.recent).map(([k2, o]) => [k2, adj(o)]));
+  r.price = q.price;
+  r.chg = q.prev ? (q.price / q.prev - 1) * 100 : r.chg;
+  mergeMarket({market:'台股', city:'台北', ts:q.ts, closed:q.closed, off:28800});
+}
+async function liveQuote(r, long, q) {
+  const y = years[0];
+  // 起訖固定到「日」，讓 Worker 快取可以共用（約 5 分鐘）。
+  // 一般從前年 12/15 起（涵蓋去年底與近一年）；近期模式要近五年，從六年前 12/15 起
+  const p1 = Date.UTC(y - (long ? 6 : 2), 11, 15) / 1000, p2 = (Math.floor(Date.now() / 864e5) + 1) * 86400;
+  const data = await WL.chart(r.symbol, `period1=${p1}&period2=${p2}&interval=1d&events=div%7Csplit`);
+  if (!data) throw new Error('查無資料');
+  const {meta, pts, divs} = parseChart(data);
+  r._live = {meta, pts, divs, long};   // 留著給每分鐘的台股即時報價重算
+  computeLive(r, r._live, q);
+}
+// 完整更新：Yahoo 日K（全部）＋證交所即時報價（台股）
 async function liveRefresh() {
   if (!await WL.proxy()) { LIVE.state = 'off'; return body(); }
   const long = needLong();
   Object.assign(LIVE, {state:'loading', ok:0, fail:0});
-  body();
-  // 指數與改用證交所資料的標的（Yahoo 缺歷史）只隨排程更新
-  const todo = BASE.filter(r => r.symbol && !r.error && r.src !== 'twse' && !/^TWSE:/i.test(r.Yahoo代號 || ''));
+  refreshGenText();
+  // 指數只隨排程更新
+  const todo = BASE.filter(r => r.symbol && !r.error && !/^TWSE:/i.test(r.Yahoo代號 || ''));
+  const quotes = await misQuotes(todo.filter(isTW).map(r => r.代碼));
   let i = 0;
   const worker = async () => {   // 同時最多 8 個請求
     while (i < todo.length) {
       const r = todo[i++];
-      await liveQuote(r, long).then(() => LIVE.ok++, () => LIVE.fail++);
+      if (r.src === 'twse') { quotes[r.代碼] ? (scaleTwse(r, quotes[r.代碼]), LIVE.ok++) : null; continue; }
+      await liveQuote(r, long, quotes[r.代碼]).then(() => LIVE.ok++, () => LIVE.fail++);
     }
   };
   await Promise.all(Array.from({length:8}, worker));
-  Object.assign(LIVE, {state:'done', at:nowTPE(), long});
+  LIVE.state = 'done'; LIVE.long = long;
+  LIVE.lastFail = !LIVE.ok;
+  if (LIVE.ok) LIVE.at = Date.now();
   rebuildRows();
 }
+// 台股盤中每分鐘：只抓證交所即時報價（一兩個請求），用先前的日K重算
+async function twTick() {
+  const rows = BASE.filter(r => isTW(r) && (r._live || r.src === 'twse'));
+  if (!rows.length) return;
+  const quotes = await misQuotes(rows.map(r => r.代碼));
+  let n = 0;
+  for (const r of rows) {
+    const q = quotes[r.代碼];
+    if (!q) continue;
+    try { r.src === 'twse' ? scaleTwse(r, q) : computeLive(r, r._live, q); n++; } catch (e) {}
+  }
+  LIVE.lastFail = !n;
+  if (n) { LIVE.at = Date.now(); rebuildRows(); } else refreshGenText();
+}
+// 開盤時間自動更新（台北時間）：台股 9:00–13:35 每分鐘；美股、英股開盤時每 5 分鐘完整更新一次
+function marketsOpen() {
+  const d = new Date(Date.now() + 8 * 3600e3), wd = d.getUTCDay(), hm = d.getUTCHours() * 60 + d.getUTCMinutes();
+  const tw = wd >= 1 && wd <= 5 && hm >= 540 && hm <= 815;
+  const us = (wd >= 1 && wd <= 5 && hm >= 1290) || (wd >= 2 && wd <= 6 && hm <= 330);   // 約 21:30–05:30
+  const uk = (wd >= 1 && wd <= 5 && hm >= 900) || (wd >= 2 && wd <= 6 && hm <= 30);     // 約 15:00–00:30
+  return {tw, other:us || uk};
+}
+let tickN = 0;
+setInterval(() => {
+  refreshGenText();   // 更新「幾分鐘前」
+  if (document.hidden || LIVE.state === 'loading' || LIVE.state === 'off') return;
+  tickN++;
+  const o = marketsOpen();
+  if (o.other && tickN % 5 === 0) liveRefresh();
+  else if (o.tw) twTick();
+}, 60000);
 const customRows = {};   // 代碼 → 計算好的自訂項目
 function fillCats() {
   document.getElementById('cats').innerHTML = [...new Set(DATA.rows.map(r => r.類))].map(c => `<option value="${esc(c)}">`).join('');
