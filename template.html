@@ -201,7 +201,7 @@
     <summary>資料更新方式與時間</summary>
     <div class="body">
   <ul>
-    <li><b>即時</b>：打開網頁時，重算「現價」「最後交易日漲跌」、<b>今年</b>與<b>近期</b>報酬率。台股用證交所即時報價（延遲約數秒～15 秒），美股、英股用 Yahoo（Yahoo 本身延遲約 15～20 分鐘，另有 5 分鐘快取）。網頁開著時，台股盤中每分鐘、美股與英股開盤時每 5 分鐘自動更新。表格下方「現價與報酬率更新於 10:32（3 分鐘前）」是最後一次成功取得資料的時間，抓不到新資料時會繼續顯示上次成功的時間。</li>
+    <li><b>即時</b>：打開網頁時，重算「現價」「最後交易日漲跌」、<b>今年</b>與<b>近期</b>報酬率。台股用證交所即時報價（延遲約數秒～15 秒），美股、英股用 Yahoo（Yahoo 本身延遲約 15～20 分鐘，另有 5 分鐘快取）。網頁開著時，台股盤中每分鐘、美股與英股開盤時每 5 分鐘自動更新。表格下方「現價與報酬率更新於 10:32（3 分鐘前）」是最後一次成功取得資料的時間，抓不到新資料時會繼續顯示上次成功的時間。收盤後（台股 13:30）取得收盤價就不再重抓，表格下方改為「收盤資料」，資料時間即收盤時間（例：台股 2026/10/30 13:30 收盤）。</li>
     <li><b>排程</b>：過去年度的報酬率不會再變，由 GitHub 排程每個平日執行兩次（台北約 15:17 台股收盤後、06:17 美股收盤後；GitHub 排程常會延遲數小時）。表格下方「排程更新於…」是排程實際執行完成的時間。</li>
     <li>即時價格抓不到時（例如資料代理無法連線），整列沿用排程資料，表格下方會註明。台灣報酬指數、加權指數只隨排程更新。</li>
   </ul>
@@ -877,6 +877,10 @@ function ago(t) {
 function genText() {
   const sched = `排程更新於 ${DATA.updated}（台北時間）`;
   if (!LIVE.at) return LIVE.state === 'loading' ? `${sched}　即時價格載入中…` : `${sched}　即時價格無法取得，全部沿用排程資料`;
+  // 各市場都已收盤：資料就是收盤價（時間見「資料時間」），不再顯示「幾分鐘前」
+  const o = marketsOpen();
+  if (!o.tw && !o.other) return `現價與報酬率為收盤資料　歷年報酬率${sched}` +
+    (LIVE.fail ? `　${LIVE.fail} 檔即時更新失敗，沿用排程資料` : '');
   return `現價與報酬率更新於 ${fmtTs(Math.floor(LIVE.at / 1000), 28800).slice(11)}（${ago(LIVE.at)}）` +
     (LIVE.lastFail ? '，最近一次更新失敗' : '') + `　歷年報酬率${sched}` +
     (LIVE.fail ? `　${LIVE.fail} 檔即時更新失敗，沿用排程資料` : '');
@@ -899,8 +903,9 @@ async function misQuotes(codes) {
       const price = num(q.z) ?? num((q.b || '').split('_')[0]);
       if (!price || !q.d || !q.tlong) continue;
       const hm = (q.t || '').slice(0, 5);
-      out[q.c] = {price, prev:num(q.y), day:`${q.d.slice(0, 4)}-${q.d.slice(4, 6)}-${q.d.slice(6, 8)}`,
-        ts:Math.floor(+q.tlong / 1000), closed:hm >= '13:30'};
+      const day = `${q.d.slice(0, 4)}-${q.d.slice(4, 6)}-${q.d.slice(6, 8)}`, closed = hm >= '13:30';
+      // 已收盤：資料時間一律是當日 13:30 收盤
+      out[q.c] = {price, prev:num(q.y), day, closed, ts:closed ? Date.parse(`${day}T13:30:00+08:00`) / 1000 : Math.floor(+q.tlong / 1000)};
     }
   }
   return out;
@@ -931,6 +936,7 @@ function computeLive(r, src, q) {
     r.chg = q.prev ? (q.price / q.prev - 1) * 100 : (q.price / pts[pts.length - 2].c - 1) * 100;
     mergeMarket({market:'台股', city:'台北', ts:q.ts, closed:q.closed, off:28800});
     r.mkt = '台股';
+    r._final = q.closed ? q.day : '';   // 已是收盤價（記交易日）：收盤後不用再更新
   } else {
     r.price = src.meta.regularMarketPrice ?? end.c;
     r.chg = (r.price / pts[pts.length - 2].c - 1) * 100;
@@ -951,6 +957,7 @@ function scaleTwse(r, q) {
   r.recent = Object.fromEntries(Object.entries(b.recent).map(([k2, o]) => [k2, adj(o)]));
   r.price = q.price;
   r.chg = q.prev ? (q.price / q.prev - 1) * 100 : r.chg;
+  r._final = q.closed ? q.day : '';
   mergeMarket({market:'台股', city:'台北', ts:q.ts, closed:q.closed, off:28800});
 }
 async function liveQuote(r, long, q) {
@@ -968,10 +975,12 @@ async function liveQuote(r, long, q) {
 async function liveRefresh() {
   if (!await WL.proxy()) { LIVE.state = 'off'; return body(); }
   const long = needLong();
+  // 指數只隨排程更新；台股收盤後已取得收盤價的不再重抓
+  const twOpen = marketsOpen().tw;
+  const todo = BASE.filter(r => r.symbol && !r.error && !/^TWSE:/i.test(r.Yahoo代號 || '') && !(isTW(r) && r._final && !twOpen));
+  if (!todo.length) return refreshGenText();
   Object.assign(LIVE, {state:'loading', ok:0, fail:0});
   refreshGenText();
-  // 指數只隨排程更新
-  const todo = BASE.filter(r => r.symbol && !r.error && !/^TWSE:/i.test(r.Yahoo代號 || ''));
   const quotes = await misQuotes(todo.filter(isTW).map(r => r.代碼));
   let i = 0;
   const worker = async () => {   // 同時最多 8 個請求
@@ -989,7 +998,7 @@ async function liveRefresh() {
 }
 // 台股盤中每分鐘：只抓證交所即時報價（一兩個請求），用先前的日K重算
 async function twTick() {
-  const rows = BASE.filter(r => isTW(r) && (r._live || r.src === 'twse'));
+  const rows = BASE.filter(r => isTW(r) && (r._live || r.src === 'twse') && r._final !== nowTPE().slice(0, 10).replace(/\//g, '-'));   // 今天已收盤的不再抓
   if (!rows.length) return;
   const quotes = await misQuotes(rows.map(r => r.代碼));
   let n = 0;
