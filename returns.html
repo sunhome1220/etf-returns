@@ -59,6 +59,8 @@
   .stk { position:sticky; left:0; z-index:1; box-shadow:inset 1px 0 var(--bd), inset -1px 0 var(--bd), 3px 0 4px -3px rgba(0,0,0,.25); }
   thead th.stk { z-index:3; }
   thead tr.group th { background:#fff; top:0; color:#555; font-weight:normal; }
+  /* 群組標題可換行、算法小一級：只選一兩個年度時不會把年度欄撐寬 */
+  thead tr.group th.grp { white-space:normal; line-height:1.25; } .grp .gm { font-size:.85em; }
   thead tr.cols th { top:27px; }   /* 實際值依群組列高度在 head() 設定 */
   th .h { display:flex; flex-direction:column; align-items:center; gap:1px; }
   th .tools { display:flex; align-items:center; gap:3px; line-height:1; }
@@ -335,7 +337,8 @@ function head() {
   const allOn = DATA.rows.length && DATA.rows.every(r => pk.has(r.代碼));
   document.querySelector('#t thead').innerHTML =
     `<tr class="group"><th style="border:none"></th><th colspan="${vc.length - nYear}" style="border:none"></th>` +
-    (nYear ? `<th colspan="${nYear}">${S.view === 'recent' ? '近期' : '各年度'}含息報酬率（${methodName()}）</th>` : '') + `</tr>` +
+    (nYear ? `<th colspan="${nYear}" class="grp">${nYear <= 2 ? `${S.view === 'recent' ? '近期' : ''}報酬率<br><span class="gm">${S.calc === 'simple' ? '不再投入' : '再投入'}</span>`   // 欄位少時用短標題
+      : `${S.view === 'recent' ? '近期' : '各年度'}含息報酬率<span class="gm">（${methodName()}）</span>`}</th>` : '') + `</tr>` +
     `<tr class="cols"><th><input type="checkbox" id="pickAll" title="全選/全不選" ${allOn ? 'checked' : ''}></th>${th}</tr>`;
   // 欄名列固定在群組列下方；群組列高度隨字級改變
   const gh = document.querySelector('#t thead tr.group').offsetHeight;
@@ -571,6 +574,15 @@ async function exportImage() {
     const nm = c.querySelector('.nm');
     const tc = lbl ? getComputedStyle(lbl) : nm ? getComputedStyle(nm) : cs;
     g.font = font(tc); g.fillStyle = tc.color;
+    if (c.classList.contains('grp')) {   // 群組標題在畫面上會換行：圖片上依 <br> 與欄寬逐字換行
+      const max = w - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), out = [];
+      for (const part of c.innerHTML.split('<br>').map(s => s.replace(/<[^>]*>/g, ''))) {
+        let line = '';
+        for (const ch of part) { if (line && g.measureText(line + ch).width > max) { out.push(line); line = ch; } else line += ch; }
+        out.push(line);
+      }
+      lines.splice(0, lines.length, ...out);
+    }
     if (nm && nm.scrollWidth > nm.clientWidth) {   // 名稱被截斷：圖片上同樣以 … 結尾
       let t = lines[0];
       while (t.length > 1 && g.measureText(t + '…').width > nm.clientWidth) t = t.slice(0, -1);
