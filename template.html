@@ -301,6 +301,23 @@ const defaultSort = () => S.view === 'recent' ? 'py1' : 'y' + years[0];
 const visCols = () => cols.filter(c => inView(c) && !S.hiddenCols.includes(c.k));
 const picked = () => new Set(S.picked);
 
+// 匯出圖片副標題用：目前的查詢篩選條件（文字說明）
+function filterDesc() {
+  const parts = [];
+  const q = document.getElementById('q').value.trim();
+  if (q) parts.push(`搜尋「${q}」`);
+  for (const [k, f] of Object.entries(S.filters)) {
+    const c = colByKey[k];
+    if (!c || !inView(c)) continue;
+    const label = c.label.replace(/<br>/g, '');
+    if (f.vals) parts.push(`${label} ${f.vals.length > 5 ? f.vals.slice(0, 5).join('、') + ` 等 ${f.vals.length} 項` : f.vals.join('、')}`);
+    if (f.min != null) parts.push(`${label} ≥ ${f.min}`);
+    if (f.max != null) parts.push(`${label} ≤ ${f.max}`);
+  }
+  if (S.mode === 'only') parts.push('只看勾選');
+  if (S.mode === 'hide') parts.push('隱藏勾選');
+  return parts.length ? '篩選：' + parts.join('；') : '';
+}
 // 匯出圖片檔名用：目前的查詢篩選條件（例：_類別-高息+主動_2026≥10_搜尋-00）
 function filterTag() {
   const parts = [];
@@ -557,9 +574,12 @@ async function exportImage() {
   const skip = table.querySelector('thead tr.cols th').getBoundingClientRect().width;   // 不含勾選欄
   const W = tr0.width - skip, ox = tr0.left + skip;
   const font = cs => `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-  const bodyFont = font(getComputedStyle(document.body));
-  const title = S.view === 'recent' ? `近期含息報酬率（${methodName()}）` : `各年度含息報酬率（近 ${S.span} 年，${methodName()}）`;
-  const sub = document.getElementById('info').textContent.split(' · ')[0];
+  // 標題列：主標題固定；副標題寫目前的期間、算法、資料日期與篩選條件
+  const title = '股市小樹苗・ETF 含息報酬率';
+  const fd = filterDesc();
+  const sub = [S.view === 'recent' ? '近期報酬率' : `各年度報酬率（${years[0] - S.span + 1}–${years[0]}）`,
+    methodName(), `資料日期 ${DATA.updated.slice(0, 10)}`, fd].filter(Boolean).join('・');
+  const icon = await new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = 'icon-192.png'; });
   const foot = document.querySelector('#t tfoot td').textContent.replace(genText(), '').trim() + '　' + genText();
   const src = /^https?:/.test(location.href) ? location.href.split('#')[0] : '';
   const cv = document.createElement('canvas'), g = cv.getContext('2d');
@@ -577,12 +597,18 @@ async function exportImage() {
   const howLines = wrap(how + (S.view === 'recent'
     ? '近期：以最新收盤日往回推 7 天、1／3／6／12／36／60 個月，起點取該日或之前最後一個交易日收盤；年化＝(1＋累積)^(1/年數)−1。'
     : '今年為年初至今；斜體＝上市當年，從上市首日收盤起算。'), '12px ' + getComputedStyle(document.body).fontFamily);
-  const top = 56, H = top + TB + 10 + howLines.length * 17 + 4 + footLines.length * 11 + (src ? 11 : 0) + PAD;
-  cv.width = (W + PAD * 2) * SC; cv.height = H * SC;
-  g.scale(SC, SC); g.fillStyle = '#fff'; g.fillRect(0, 0, W + PAD * 2, H);
-  g.textBaseline = 'middle'; g.fillStyle = '#222'; g.font = 'bold 18px ' + getComputedStyle(document.body).fontFamily;
-  g.fillText(title, PAD, 22);
-  g.fillStyle = '#666'; g.font = bodyFont; g.fillText(sub, PAD, 44);
+  const BAR = 62, top = BAR + 14, ICON = 40;
+  const H = top + TB + 10 + howLines.length * 17 + 4 + footLines.length * 11 + (src ? 11 : 0) + 10 + ICON + PAD;
+  const CW = W + PAD * 2, fam = getComputedStyle(document.body).fontFamily;
+  cv.width = CW * SC; cv.height = H * SC;
+  g.scale(SC, SC); g.fillStyle = '#fff'; g.fillRect(0, 0, CW, H);
+  g.textBaseline = 'middle';
+  g.fillStyle = '#2c7a3f'; g.fillRect(0, 0, CW, BAR);   // 標題列
+  g.fillStyle = '#fff'; g.font = 'bold 20px ' + fam; g.fillText(title, PAD, 23);
+  g.font = '12px ' + fam; g.fillStyle = 'rgba(255,255,255,.88)';
+  let st = sub;   // 副標題太長以 … 結尾
+  while (st.length > 1 && g.measureText(st).width > CW - PAD * 2) st = st.slice(0, -2) + '…';
+  g.fillText(st, PAD, 46);
   const cells = [...table.querySelectorAll('thead th, tbody td')].filter(c => c.cellIndex > 0 || c.closest('tr.group'));
   for (const c of cells) {
     const r = c.getBoundingClientRect(), cs = getComputedStyle(c);
@@ -624,6 +650,14 @@ async function exportImage() {
   fy += 4; g.font = '8px ' + getComputedStyle(document.body).fontFamily; g.fillStyle = '#888';
   footLines.forEach(s => { g.fillText(s, PAD, fy); fy += 11; });
   if (src) { g.fillStyle = '#2c7a3f'; g.fillText(src, PAD, fy); }
+  // 右下角：App 圖示與群組名稱
+  const iy = H - PAD - ICON, ix = CW - PAD - ICON;
+  if (icon) {
+    g.save(); g.beginPath(); g.roundRect ? g.roundRect(ix, iy, ICON, ICON, 9) : g.rect(ix, iy, ICON, ICON); g.clip();
+    g.drawImage(icon, ix, iy, ICON, ICON); g.restore();
+  }
+  g.textAlign = 'right'; g.fillStyle = '#2c7a3f'; g.font = 'bold 13px ' + fam;
+  g.fillText('股市小樹苗', ix - 8, iy + ICON / 2);
   const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
   const name = `etf-returns-${DATA.updated.slice(0, 10).replace(/\//g, '')}${filterTag()}.png`;
   const file = new File([blob], name, {type:'image/png'});
