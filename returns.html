@@ -570,7 +570,9 @@ async function exportImage() {
   const table = document.getElementById('t'), wrapEl = table.parentElement, SC = 2, PAD = 16;
   const keep = [wrapEl.scrollTop, wrapEl.scrollLeft];
   wrapEl.scrollTop = 0; wrapEl.scrollLeft = 0;   // 表頭為 sticky，捲回頂端才能量到正確位置
-  const tr0 = table.getBoundingClientRect(), TB = tr0.height - table.tFoot.getBoundingClientRect().height;
+  // 表格上方的群組標題（各年度含息報酬率…）和圖片標題列重複，圖片上不畫，表格往上移
+  const GH = table.querySelector('thead tr.group').getBoundingClientRect().height;
+  const tr0 = table.getBoundingClientRect(), TB = tr0.height - table.tFoot.getBoundingClientRect().height - GH;
   const skip = table.querySelector('thead tr.cols th').getBoundingClientRect().width;   // 不含勾選欄
   const W = tr0.width - skip, ox = tr0.left + skip;
   const font = cs => `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
@@ -611,12 +613,12 @@ async function exportImage() {
   let st = sub;   // 副標題太長以 … 結尾
   while (st.length > 1 && g.measureText(st).width > CW - PAD * 2) st = st.slice(0, -2) + '…';
   g.fillText(st, PAD, 46);
-  const cells = [...table.querySelectorAll('thead th, tbody td')].filter(c => c.cellIndex > 0 || c.closest('tr.group'));
+  const cells = [...table.querySelectorAll('thead tr.cols th, tbody td')].filter(c => c.cellIndex > 0);
   for (const c of cells) {
     const r = c.getBoundingClientRect(), cs = getComputedStyle(c);
     let x = r.left - ox + PAD, w = r.width;
     if (x < PAD) { w -= PAD - x; x = PAD; } if (w <= 0) continue;   // 群組列第一格跨到勾選欄
-    const y = r.top - tr0.top + top, h = r.height;
+    const y = r.top - tr0.top - GH + top, h = r.height;
     if (cs.backgroundColor !== 'rgba(0, 0, 0, 0)') { g.fillStyle = cs.backgroundColor; g.fillRect(x, y, w, h); }
     if (cs.borderTopStyle !== 'none') { g.strokeStyle = cs.borderTopColor; g.lineWidth = 1; g.strokeRect(x + .5, y + .5, w, h); }
     const lbl = c.querySelector('.lbl');
