@@ -300,6 +300,24 @@ const defaultSort = () => S.view === 'recent' ? 'py1' : 'y' + years[0];
 const visCols = () => cols.filter(c => inView(c) && !S.hiddenCols.includes(c.k));
 const picked = () => new Set(S.picked);
 
+// 匯出圖片檔名用：目前的查詢篩選條件（例：_類別-高息+主動_2026≥10_搜尋-00）
+function filterTag() {
+  const parts = [];
+  const q = document.getElementById('q').value.trim();
+  if (q) parts.push(`搜尋-${q}`);
+  for (const [k, f] of Object.entries(S.filters)) {
+    const c = colByKey[k];
+    if (!c || !inView(c)) continue;
+    const label = c.label.replace(/<br>/g, '');
+    if (f.vals) parts.push(`${label}-${f.vals.length > 3 ? f.vals.slice(0, 3).join('+') + `等${f.vals.length}項` : f.vals.join('+')}`);
+    if (f.min != null) parts.push(`${label}≥${f.min}`);
+    if (f.max != null) parts.push(`${label}≤${f.max}`);
+  }
+  if (S.mode === 'only') parts.push('只看勾選');
+  if (S.mode === 'hide') parts.push('隱藏勾選');
+  const tag = parts.join('_').replace(/[\\/:*?"<>|\s]+/g, '').slice(0, 80);   // 去掉檔名不能用的字元
+  return tag ? '_' + tag : '';
+}
 function passFilter(r, c, f) {
   const v = c.get(r);
   if (f.vals && !f.vals.includes(v.text)) return false;
@@ -602,7 +620,7 @@ async function exportImage() {
   footLines.forEach(s => { g.fillText(s, PAD, fy); fy += 11; });
   if (src) { g.fillStyle = '#2c7a3f'; g.fillText(src, PAD, fy); }
   const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
-  const name = `etf-returns-${DATA.updated.slice(0, 10).replace(/\//g, '')}.png`;
+  const name = `etf-returns-${DATA.updated.slice(0, 10).replace(/\//g, '')}${filterTag()}.png`;
   const file = new File([blob], name, {type:'image/png'});
   if (navigator.canShare && navigator.canShare({files:[file]}) && matchMedia('(pointer:coarse)').matches) {
     try { await navigator.share({files:[file], title}); return; } catch (e) { if (e.name === 'AbortError') return; }
