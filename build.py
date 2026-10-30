@@ -463,6 +463,7 @@ def analyze_twse(row, years, hist, key, cached, missing):
     close_ts = int(dt.datetime(last_d.year, last_d.month, last_d.day, 13, 30, tzinfo=TPE).timestamp())
     out.update({
         "symbol": code, "price": last_v, "chg": (last_v / cur[-2][1] - 1) * 100,
+        "since": row.get("成立") or None,   # 指數的編製起始年，填在 stocks.csv「成立」欄
         "date": last_d.isoformat(), "listed": None, "除息": row.get("除息") or "無",
         "_market": {"market": "台股", "city": "台北", "ts": close_ts, "closed": True, "off": 28800},
         "_yname": row.get("名稱"),
