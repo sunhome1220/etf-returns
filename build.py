@@ -286,7 +286,7 @@ def analyze(row, years, hist=None):
     hist[key] = {"listed": out["listed"], "from": frm, "returns": {**done, **settled}}
     out["recent"] = recent_returns(pts, divs)
     # 今年已除息：今年除息日已過的每股股息合計（元）
-    out["divYtd"] = round(sum(v for d, v in divs if d.year == years[0] and d <= pts[-1][0]), 6)
+    out["divYtd"] = round(sum(v for d, v in divs if d.year == years[0] and d <= pts[-1][0]), 3)
 
     # 除息月份：近一年的除息事件
     if not row.get("除息"):

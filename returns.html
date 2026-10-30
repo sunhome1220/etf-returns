@@ -246,7 +246,7 @@ const cols = [
   {k:'類', label:'類別', get:r => ({sort:r.類, text:r.類})},
   {k:'除息', label:'除息', get:r => ({sort:r.除息 || '', text:r.除息 || '(空白)'})},
   // 今年已除息：今年除息日已過的每股股息合計（元），與 build.py 相同
-  {k:'divYtd', label:'今年<br>已除息', num:true, get:r => r.divYtd == null ? {sort:null, text:'(空白)'} : {sort:r.divYtd, text:String(+r.divYtd.toFixed(4))}},
+  {k:'divYtd', label:'今年<br>已除息', num:true, get:r => r.divYtd == null ? {sort:null, text:'(空白)'} : {sort:r.divYtd, text:String(+r.divYtd.toFixed(3))}},
   {k:'代碼', label:'代碼', get:r => ({sort:r.代碼, text:r.代碼})},
   {k:'名稱', label:'名稱', get:r => ({sort:r.名稱, text:r.名稱})},
   // 成立年度：Yahoo 該檔最早交易日（firstTradeDate）的年份
