@@ -1,6 +1,10 @@
 // 各頁共用：手機 App（加入主畫面）、更新內容通知。
 // 新增功能時，在 CHANGELOG 最前面加一筆（id 遞增）；使用者下次打開會看到上次之後的更新內容。
 const CHANGELOG = [
+  {id:34, date:'2026-11-08', items:[
+    '網站更新時通知：開著網頁時每 15 分鐘、回到 App 時自動檢查，有新版本會在下方顯示更新內容，點「更新」即可',
+    '排程向證交所／Yahoo 抓資料偶爾失敗時會自動重試，仍失敗則沿用上次資料（修正報酬指數一度「查無資料」）',
+  ]},
   {id:33, date:'2026-11-04', items:[
     '預設清單加入 00830 國泰費城半導體（美國／主題）',
   ]},
@@ -126,7 +130,11 @@ const CHANGELOG = [
     .app-dlg ul, .app-dlg ol { margin:0; padding-left:1.3em; }
     .app-dlg p { margin:0 0 8px; }
     .app-dlg .ok { display:block; margin:14px 0 0 auto; padding:5px 16px; border:none; border-radius:4px; background:#2c7a3f; color:#fff; font:inherit; cursor:pointer; }
-    .app-bar { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); z-index:90; background:#2c7a3f; color:#fff; border-radius:20px; padding:8px 16px; font-size:14px; box-shadow:0 4px 12px rgba(0,0,0,.2); cursor:pointer; white-space:nowrap; }
+    .app-bar { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); z-index:90; display:flex; align-items:center; gap:8px; max-width:calc(100% - 32px); box-sizing:border-box; background:#2c7a3f; color:#fff; border-radius:20px; padding:6px 8px 6px 16px; font-size:14px; box-shadow:0 4px 12px rgba(0,0,0,.2); cursor:pointer; white-space:nowrap; }
+    .app-bar .txt { overflow:hidden; text-overflow:ellipsis; font-size:13px; opacity:.9; }
+    .app-bar button { flex:none; border:none; font:inherit; cursor:pointer; }
+    .app-bar .go { background:#fff; color:#2c7a3f; border-radius:14px; padding:2px 12px; font-weight:bold; }
+    .app-bar .x { background:none; color:#fff; padding:2px 4px; opacity:.8; }
     .app-btn { padding:1px 8px; border:1px solid #2c7a3f; border-radius:4px; background:#fff; color:#2c7a3f; font:inherit; font-size:12px; font-weight:normal; cursor:pointer; vertical-align:middle; margin-left:8px; }
   `;
   document.head.appendChild(css);
@@ -148,21 +156,28 @@ const CHANGELOG = [
   if (!seen) set(latest);
   else if (seen < latest) showLog(CHANGELOG.filter(e => e.id > seen), '網站更新了');
 
-  // App 開著時網站更新了（回到前景時檢查）：提示重新載入，載入後會顯示更新內容
-  let hiddenAt = 0;
-  document.addEventListener('visibilitychange', async () => {
-    if (document.hidden) { hiddenAt = Date.now(); return; }
-    if (Date.now() - hiddenAt < 60000 || document.querySelector('.app-bar')) return;
+  // App 開著時網站更新了：回到前景（離開超過 1 分鐘）時、以及開著時每 15 分鐘檢查一次，
+  // 有新版本就在下方顯示更新內容，點了重新載入（載入後會顯示完整更新內容）
+  async function checkUpdate() {
+    if (document.hidden || document.querySelector('.app-bar')) return;
     const txt = await fetch('app.js', {cache:'no-cache'}).then(r => r.ok ? r.text() : '').catch(() => '');
-    const m = txt.match(/\{id:(\d+)/);
-    if (m && +m[1] > latest) {
-      const bar = document.createElement('div');
-      bar.className = 'app-bar';
-      bar.textContent = '網站有新版本，點這裡更新';
-      bar.onclick = () => location.reload();
-      document.body.appendChild(bar);
-    }
+    const items = [];
+    for (const m of txt.matchAll(/\{id:(\d+), date:'[^']*', items:\[([\s\S]*?)\]\}/g))
+      if (+m[1] > latest) items.push(...[...m[2].matchAll(/'((?:[^'\\]|\\.)*)'/g)].map(x => x[1].replace(/\\(.)/g, '$1')));
+    if (!items.length) return;
+    const bar = document.createElement('div');
+    bar.className = 'app-bar';
+    bar.innerHTML = `<b>有新版本</b><span class="txt">${esc(items[0])}${items.length > 1 ? ` 等 ${items.length} 項` : ''}</span>` +
+      `<button class="go">更新</button><button class="x" title="稍後">✕</button>`;
+    bar.onclick = e => { if (e.target.classList.contains('x')) bar.remove(); else location.reload(); };
+    document.body.appendChild(bar);
+  }
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) hiddenAt = Date.now();
+    else if (Date.now() - hiddenAt >= 60000) checkUpdate();
   });
+  setInterval(checkUpdate, 15 * 60000);
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
