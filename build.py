@@ -324,11 +324,7 @@ _twse_lock = threading.Lock()
 
 def twse_month(ep, col, y, m):
     """某月每日指數 [(date, value)]；證交所有流量限制，序列化並間隔呼叫。"""
-    url = "https://www.twse.com.tw/rwd/zh/TAIEX/%s?date=%04d%02d01&response=json" % (ep, y, m)
-    with _twse_lock:
-        time.sleep(1)
-        with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30) as r:
-            j = json.load(r)
+    j = twse_get("https://www.twse.com.tw/rwd/zh/TAIEX/%s?date=%04d%02d01&response=json" % (ep, y, m))
     out = []
     for rec in j.get("data") or []:
         ry, rm, rd = (int(x) for x in rec[0].split("/"))
@@ -338,11 +334,21 @@ def twse_month(ep, col, y, m):
 
 def twse_json(path, **qs):
     """證交所 rwd API；有流量限制，與指數查詢共用鎖並間隔呼叫。"""
-    url = "https://www.twse.com.tw/rwd/zh/%s?%s&response=json" % (path, "&".join("%s=%s" % kv for kv in qs.items()))
-    with _twse_lock:
-        time.sleep(1)
-        with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30) as r:
-            return json.load(r)
+    return twse_get("https://www.twse.com.tw/rwd/zh/%s?%s&response=json" % (path, "&".join("%s=%s" % kv for kv in qs.items())))
+
+
+def twse_get(url, tries=3):
+    """證交所 rwd API：序列化並間隔呼叫；偶發失敗（逾時、流量限制）時等幾秒重試。"""
+    for i in range(tries):
+        try:
+            with _twse_lock:
+                time.sleep(1)
+                with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30) as r:
+                    return json.load(r)
+        except Exception:
+            if i == tries - 1:
+                raise
+            time.sleep(3 * (i + 1))
 
 
 def roc_date(s):
@@ -408,7 +414,8 @@ def analyze_twse(row, years, hist, key, cached, missing):
         if len(cur) < 2:
             pm = (today.replace(day=1) - dt.timedelta(days=1))
             cur = twse_month(ep, col, pm.year, pm.month) + cur
-    except Exception:
+    except Exception as e:
+        print("%s：證交所指數讀取失敗 %s" % (code, e))
         cur = []
     if not cur:
         out["error"] = "查無資料"
@@ -515,11 +522,28 @@ def finish_row(r, markets):
         markets[m["market"]] = {"ts": m["ts"], "text": market_text(m)}
 
 
-def build(rows, years, hist=None):
+def load_old_rows(path):
+    """上次輸出的 returns.html 裡的資料列 {代碼: row}；讀不到就空的。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            m = re.search(r"const DATA = (\{.*?\});\n", f.read(), re.S)
+        return {r["代碼"]: r for r in json.loads(m.group(1))["rows"]}
+    except Exception:
+        return {}
+
+
+def build(rows, years, hist=None, old=None):
     with ThreadPoolExecutor(8) as ex:
         results = list(ex.map(lambda r: analyze(r, years, hist), rows))
     markets = {}
-    for r in results:
+    for i, r in enumerate(results):
+        # 這次抓不到（資料來源暫時失敗）而上次有資料：沿用上次的資料，清單欄位以這次為準
+        o = (old or {}).get(r["代碼"])
+        if r.get("error") and o and not o.get("error"):
+            print("%s：%s，沿用上次資料（%s）" % (r["代碼"], r["error"], o.get("date")))
+            r = results[i] = {**o, **{k: r[k] for k in CSV_FIELDS if r.get(k)}}
+        if r.get("成立") and not r.get("since"):   # 查無資料時也顯示清單填的成立年
+            r["since"] = r["成立"]
         # 名稱留空：台股用證交所中文簡稱，否則用 Yahoo 名稱
         if not r.get("名稱"):
             r["名稱"] = (re.fullmatch(r"\d{4,6}[A-Z]?", r["代碼"]) and tw_name(r["代碼"])) or r.get("_yname") or r["代碼"]
@@ -570,7 +594,7 @@ def main():
     args = ap.parse_args()
 
     hist = {} if args.full else load_hist()
-    payload = build(load_rows(args.csv), get_years(args.years), hist)
+    payload = build(load_rows(args.csv), get_years(args.years), hist, load_old_rows(args.out))
     save_hist(hist)
     for r in payload["rows"]:
         print("%-8s %-12s %s" % (r["代碼"], r["名稱"], r.get("error", "OK")))
