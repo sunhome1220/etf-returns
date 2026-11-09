@@ -44,7 +44,7 @@ description: 把一檔或多檔股票／ETF 加入預設清單（stocks.csv）�
 - **名稱先留空**：排程會自動補上——台股用證交所中文簡稱，其他用 Yahoo 名稱。
 - 除息、Yahoo代號、成立先留空（自動判斷）；使用者有提供除息月份才填（如 `"3,6,9,12"` 或 `每月`）。
 - 放在同類別或相近的位置；台股代碼不用加 `.TW`。
-- 新區域（如「日本」）要同時加到新增代碼的區域選項：`template.html`／`returns.html` 的 `<select id="ar">` 與 `watchlist.html` 的 `REGIONS`。
+- 新區域（如「日本」）要同時加到「我的追蹤清單」新增代碼的區域選項：`watchlist.html` 的 `REGIONS`。
 
 在 `app.js` 的 `CHANGELOG` 最前面加一筆（`id` 遞增）。commit、push 到工作分支。
 
