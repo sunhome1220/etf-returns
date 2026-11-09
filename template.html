@@ -35,9 +35,6 @@
   body.collapsed #opts { display:none; }
   body.collapsed .wrap { max-height:calc(100vh - 60px); }
   #optBtn { margin-left:12px; padding:1px 8px; border:1px solid #bbb; background:#fafafa; border-radius:4px; cursor:pointer; font:inherit; font-size:12px; font-weight:normal; vertical-align:middle; }
-  .addbar input, .addbar select { padding:4px 6px; border:1px solid var(--bd); border-radius:4px; font:inherit; }
-  .addbar #addBtn { background:#2c7a3f; color:#fff; border-color:#2c7a3f; }
-  .addbar :disabled { opacity:.5; cursor:not-allowed; }
   #amsg.ok { color:#2c7a3f; } #amsg.bad { color:#c00; } #amsg { color:#888; }
   .rm { border:none; background:none; color:#bbb; cursor:pointer; padding:0 2px; font-size:12px; }
   .rm:hover { color:#c00; }
@@ -144,14 +141,8 @@
   <span id="info"></span>
 </div>
 <div class="bar addbar">
-  <b>新增代碼</b>
-  <input id="ac" placeholder="如 2330、QQQ、VWRA.L" size="16">
-  <input id="an" placeholder="名稱（選填）" size="12">
-  <select id="ar"><option value="">區域（自動）</option><option>台灣</option><option>美國</option><option>陸港</option><option>日本</option><option>全球</option></select>
-  <input id="at" list="cats" placeholder="類別（預設 自選）" size="10"><datalist id="cats"></datalist>
-  <button id="addBtn">加入</button>
   <button id="restore" style="display:none"></button>
-  <a href="watchlist.html" class="manage">管理我的追蹤清單 →</a>
+  <a href="watchlist.html" class="manage">新增代碼、管理我的追蹤清單 →</a>
   <span id="amsg"></span>
 </div>
 </div>
@@ -1063,9 +1054,6 @@ setInterval(() => {
   else if (o.tw) twTick();
 }, 60000);
 const customRows = {};   // 代碼 → 計算好的自訂項目
-function fillCats() {
-  document.getElementById('cats').innerHTML = [...new Set(DATA.rows.map(r => r.類))].map(c => `<option value="${esc(c)}">`).join('');
-}
 // 依個人清單組出表格資料：預設項目用預先算好的資料，自訂項目用瀏覽器算的資料
 function rebuildRows() {
   DATA.rows = WL.items(BASE).map(it => {
@@ -1076,7 +1064,7 @@ function rebuildRows() {
   const n = WL.state().removed.length, rs = document.getElementById('restore');
   rs.style.display = n ? '' : 'none';
   rs.textContent = `還原已移除（${n}）`;
-  fillCats(); render();
+  render();
 }
 // 計算尚未載入的自訂項目
 async function loadCustom() {
@@ -1095,25 +1083,6 @@ async function loadCustom() {
 }
 WL.onChange(loadCustom);   // 「我的追蹤清單」頁修改後即時同步
 
-async function addCode() {
-  const btn = document.getElementById('addBtn');
-  btn.disabled = true;
-  try {
-    const {raw, code} = WL.parseCode(document.getElementById('ac').value);
-    if (DATA.rows.some(r => r.代碼 === code)) throw new Error(`${code} 已在清單中`);
-    amsg(`查詢 ${raw} 中…`);
-    const it = WL.state().removed.includes(code) ? {代碼:code} : await WL.lookup(raw, {
-      名稱:document.getElementById('an').value.trim(), 區:document.getElementById('ar').value,
-      類:document.getElementById('at').value.trim()});
-    const res = WL.addCustom(it);
-    ['ac', 'an'].forEach(id => document.getElementById(id).value = '');
-    await loadCustom();
-    amsg(res === 'restored' ? `已還原 ${code}` : `已加入 ${code} ${it.名稱}（只存在你的瀏覽器）`, 'ok');
-  } catch (e) { amsg(e.message, 'bad'); }
-  btn.disabled = false;
-}
-document.getElementById('addBtn').onclick = addCode;
-document.getElementById('ac').addEventListener('keydown', e => { if (e.key === 'Enter') addCode(); });
 document.getElementById('restore').onclick = () => { WL.restoreAll(); rebuildRows(); amsg('已還原預設清單', 'ok'); };
 document.querySelector('#t tbody').addEventListener('click', e => {
   const code = e.target.dataset.rm; if (!code) return;
