@@ -132,12 +132,8 @@
   <select id="method" title="報酬率算法（說明見頁面最下方）"><option value="simple">股息不再投入</option><option value="tr">股息再投入</option></select>
   <select id="dec" title="數字的小數位數（全部欄位一起變動）"><option value="1">小數 1 位</option><option value="2">小數 2 位</option></select>
   <input id="q" type="search" placeholder="搜尋代碼 / 名稱">
-  <button id="onlyPicked">只看勾選</button>
-  <button id="hidePicked">隱藏勾選</button>
-  <button id="clearPicked">清除勾選</button>
   <button id="colBtn">欄位</button>
   <button id="expBtn" title="依目前畫面匯出成圖片">匯出圖片</button>
-  <button id="reset">全部重設</button>
   <span id="info"></span>
 </div>
 <div class="bar addbar">
@@ -267,7 +263,7 @@ S.sortKey = S.sortKey || 'y' + years[0];
 S.sortDir = S.sortDir || -1;
 S.filters = S.filters || {};      // k -> {vals:[允許的文字] | null, min, max}
 S.picked = S.picked || [];        // 勾選的代碼
-S.mode = S.mode || '';            // '' | 'only' | 'hide'
+delete S.mode;                    // 「只看／隱藏勾選」已移除
 S.hiddenCols = S.hiddenCols || [];
 // 手機預設隱藏區域、類別、除息（可從「欄位」叫回）；只在使用者沒自訂過欄位時套用一次
 const MOBILE_HIDDEN = ['區', '類', '除息', 'divYtd', 'since'];
@@ -308,8 +304,6 @@ function filterDesc() {
     if (f.min != null) parts.push(`${label} ≥ ${f.min}`);
     if (f.max != null) parts.push(`${label} ≤ ${f.max}`);
   }
-  if (S.mode === 'only') parts.push('只看勾選');
-  if (S.mode === 'hide') parts.push('隱藏勾選');
   return parts.length ? '篩選：' + parts.join('；') : '';
 }
 // 匯出圖片檔名用：目前的查詢篩選條件（例：_類別-高息+主動_2026≥10_搜尋-00）
@@ -325,8 +319,6 @@ function filterTag() {
     if (f.min != null) parts.push(`${label}≥${f.min}`);
     if (f.max != null) parts.push(`${label}≤${f.max}`);
   }
-  if (S.mode === 'only') parts.push('只看勾選');
-  if (S.mode === 'hide') parts.push('隱藏勾選');
   const tag = parts.join('_').replace(/[\\/:*?"<>|\s]+/g, '').slice(0, 80);   // 去掉檔名不能用的字元
   return tag ? '_' + tag : '';
 }
@@ -339,12 +331,9 @@ function passFilter(r, c, f) {
 }
 function filtered(exceptKey) {
   const q = document.getElementById('q').value.trim().toLowerCase();
-  const pk = picked();
   return DATA.rows.filter(r =>
     Object.entries(S.filters).every(([k, f]) => k === exceptKey || !colByKey[k] || !inView(colByKey[k]) || passFilter(r, colByKey[k], f)) &&
-    (!q || (r.代碼 + r.名稱).toLowerCase().includes(q)) &&
-    (S.mode !== 'only' || pk.has(r.代碼)) &&
-    (S.mode !== 'hide' || !pk.has(r.代碼)));
+    (!q || (r.代碼 + r.名稱).toLowerCase().includes(q)));
 }
 function cmp(c, dir) {
   return (a, b) => {
@@ -422,8 +411,6 @@ function body() {
   document.querySelector('#t tfoot').innerHTML =
     `<tr><td colspan="${vc.length + 1}"><div><b>資料時間</b>　${marketText(rows)}` +
     `<span class="gen">${genText()}</span></div></td></tr>`;
-  document.getElementById('onlyPicked').classList.toggle('on', S.mode === 'only');
-  document.getElementById('hidePicked').classList.toggle('on', S.mode === 'hide');
   save();
 }
 const render = () => { head(); body(); };
@@ -538,9 +525,6 @@ document.querySelector('#t tbody').addEventListener('change', e => {
   e.target.checked ? pk.add(code) : pk.delete(code);
   S.picked = [...pk]; render();
 });
-document.getElementById('onlyPicked').onclick = () => { S.mode = S.mode === 'only' ? '' : 'only'; render(); };
-document.getElementById('hidePicked').onclick = () => { S.mode = S.mode === 'hide' ? '' : 'hide'; render(); };
-document.getElementById('clearPicked').onclick = () => { S.picked = []; if (S.mode) S.mode = ''; render(); };
 const optBtn = document.getElementById('optBtn');
 function applyCollapsed() {
   document.body.classList.toggle('collapsed', S.collapsed);
@@ -668,11 +652,6 @@ async function exportImage() {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 document.getElementById('expBtn').onclick = () => exportImage().catch(e => alert('匯出失敗：' + e.message));
-document.getElementById('reset').onclick = () => {
-  Object.assign(S, {sortKey:'y' + years[0], sortDir:-1, filters:{}, picked:[], mode:'', hiddenCols:defaultHidden(), span:3, calc:'simple', dec:1, view:'year', cum:false, ann:false, ytd:false, fz:0});
-  spanEl.value = 3; methodEl.value = 'simple'; decEl.value = '1'; viewEl.value = 'year'; cumEl.checked = annEl.checked = ytdEl.checked = false; applyFz();
-  document.getElementById('q').value = ''; render();
-};
 // ---- 個人追蹤清單（watchlist.js，與「我的追蹤清單」頁同步）----
 // PROXY：Cloudflare Worker 網址（瀏覽器無法直接向 Yahoo 抓資料）
 const PROXY = /*PROXY*/'';
