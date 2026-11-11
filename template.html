@@ -401,8 +401,10 @@ function cell(c, r) {
   return `<td class="r yr ${cl}${v.partial ? ' partial' : ''}"${v.partial ? ` title="${r.listed} 上市起算"` : ''}>${v.text}</td>`;
 }
 
+// 目前排序的欄位（排序欄不在畫面上時用預設排序）
+const sortCol = () => colByKey[S.sortKey] && inView(colByKey[S.sortKey]) ? colByKey[S.sortKey] : colByKey[defaultSort()];
 function body() {
-  const sc = colByKey[S.sortKey] && inView(colByKey[S.sortKey]) ? colByKey[S.sortKey] : colByKey[defaultSort()];
+  const sc = sortCol();
   const rows = filtered().sort(cmp(sc, S.sortDir));
   document.getElementById('spanN').textContent = S.span;
   document.getElementById('spanR').textContent = S.span > 1 ? `(${years[0] - S.span + 1}–${years[0]})` : `(${years[0]})`;
@@ -571,8 +573,11 @@ async function exportImage() {
   // 標題列：主標題固定；副標題寫目前的期間、算法、資料日期與篩選條件
   const title = 'ETF 含息報酬率';
   const fd = filterDesc();
+  // 排序欄：副標題註明，圖片上該欄底色略深
+  const sc = sortCol(), sortIdx = visCols().indexOf(sc) + 1;
+  const sortTxt = `依「${sc.label.replace(/<br>/g, '')}」${sc.num ? (S.sortDir < 0 ? '由高到低' : '由低到高') : (S.sortDir < 0 ? 'Z→A' : 'A→Z')}排序`;
   const sub = [S.view === 'recent' ? '近期報酬率' : `各年度報酬率（${years[0] - S.span + 1}–${years[0]}）`,
-    methodName(), `資料日期 ${DATA.updated.slice(0, 10)}`, fd].filter(Boolean).join('・');
+    methodName(), sortTxt, `資料日期 ${DATA.updated.slice(0, 10)}`, fd].filter(Boolean).join('・');
   const icon = await new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = 'icon-192.png'; });
   const foot = document.querySelector('#t tfoot td').textContent.replace(genText(), '').trim() + '　' + genText();
   const src = /^https?:/.test(location.href) ? location.href.split('#')[0] : '';
@@ -612,6 +617,7 @@ async function exportImage() {
     if (x < PAD) { w -= PAD - x; x = PAD; } if (w <= 0) continue;   // 群組列第一格跨到勾選欄
     const y = r.top - tr0.top - GH + top, h = r.height;
     if (cs.backgroundColor !== 'rgba(0, 0, 0, 0)') { g.fillStyle = cs.backgroundColor; g.fillRect(x, y, w, h); }
+    if (sortIdx && c.cellIndex === sortIdx) { g.fillStyle = c.tagName === 'TH' ? 'rgba(44,122,63,.16)' : 'rgba(44,122,63,.07)'; g.fillRect(x, y, w, h); }
     if (cs.borderTopStyle !== 'none') { g.strokeStyle = cs.borderTopColor; g.lineWidth = 1; g.strokeRect(x + .5, y + .5, w, h); }
     const lbl = c.querySelector('.lbl');
     const lines = lbl ? lbl.innerHTML.split('<br>').map(s => s.replace(/<[^>]*>/g, '')) :
