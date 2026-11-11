@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="manifest" href="manifest.webmanifest">
@@ -28,7 +28,9 @@
   .bar button, .pop button { padding:3px 10px; border:1px solid #bbb; background:#fafafa; border-radius:4px; cursor:pointer; font:inherit; }
   .bar button.on { background:#2c7a3f; color:#fff; border-color:#2c7a3f; }
   #info { color:#666; }
-  .span { display:flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--bd); border-radius:4px; background:#fafafa; }
+  .bar select, .bar input { font:inherit; }
+  .span, .since { display:flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--bd); border-radius:4px; background:#fafafa; white-space:nowrap; }
+  .since input { width:4.2em; padding:1px 4px; border:1px solid var(--bd); border-radius:3px; }
   .span #spanR { color:#888; }
   .span input { width:160px; accent-color:#2c7a3f; }
   .wrap { overflow:auto; max-height:calc(100vh - 150px); }
@@ -113,6 +115,11 @@
     h1 { font-size:16px; } h1 .sub { margin-left:8px; } #optBtn { margin-left:6px; }
     :root { --tbase:12px; }
     .rm { display:none; }   /* 手機省寬度；移除請到「我的追蹤清單」 */
+    .bar { gap:6px; font-size:12px; }   /* 查詢選項：字小一點、年度範圍不換行 */
+    .bar button { padding:2px 8px; }
+    .span, .since, .multi { padding:2px 6px; gap:4px; }
+    .span input { width:90px; }
+    .bar input[type=search] { width:120px; }
     th, td { padding:2px 3px; }
     th.yr, td.yr { width:4.6em; min-width:4.6em; }
     .wrap { max-height:calc(100vh - 110px); } body.collapsed .wrap { max-height:calc(100vh - 50px); }
@@ -129,6 +136,7 @@
   <span class="multi"><label title="今年初至今的報酬率"><input type="checkbox" id="optYtd">今年</label><span class="sep">｜</span><span title="近三年、近五年的報酬率">近三／五年：</span><label><input type="checkbox" id="optCum">累積</label><label><input type="checkbox" id="optAnn">年化</label></span>
   <label class="span">年度範圍：近 <b id="spanN"></b> 年 <span id="spanR"></span>
     <input id="span" type="range" min="1" step="1"></label>
+  <label class="since" title="依成立年度篩選（與表頭「成立年度」的 ≥／≤ 相同）">成立年度 <input id="sinceMin" type="number" inputmode="numeric" placeholder="不限">～<input id="sinceMax" type="number" inputmode="numeric" placeholder="不限"></label>
   <select id="method" title="報酬率算法（說明見頁面最下方）"><option value="simple">股息不再投入</option><option value="tr">股息再投入</option></select>
   <select id="dec" title="數字的小數位數（全部欄位一起變動）"><option value="1">小數 1 位</option><option value="2">小數 2 位</option></select>
   <input id="q" type="search" placeholder="搜尋代碼 / 名稱">
@@ -398,6 +406,11 @@ function body() {
   const rows = filtered().sort(cmp(sc, S.sortDir));
   document.getElementById('spanN').textContent = S.span;
   document.getElementById('spanR').textContent = S.span > 1 ? `(${years[0] - S.span + 1}–${years[0]})` : `(${years[0]})`;
+  const sf = S.filters.since || {};
+  for (const [id, k] of [['sinceMin', 'min'], ['sinceMax', 'max']]) {
+    const el = document.getElementById(id);
+    if (document.activeElement !== el) el.value = sf[k] ?? '';
+  }
   const pk = picked(), vc = visCols();
   document.querySelector('#t tbody').innerHTML = rows.map(r =>
     `<tr class="${r.類}${r.custom ? ' custom' : ''}${pk.has(r.代碼) ? ' picked' : ''}"><td class="c"><input type="checkbox" data-pick="${r.代碼}" ${pk.has(r.代碼) ? 'checked' : ''}>` +
@@ -1100,6 +1113,13 @@ decEl.addEventListener('change', () => {
 });
 document.addEventListener('click', closePop);
 document.getElementById('q').addEventListener('input', body);
+// 查詢選項的成立年度：寫入表頭「成立年度」欄的 ≥／≤ 篩選（兩處同步）
+for (const [id, k] of [['sinceMin', 'min'], ['sinceMax', 'max']]) document.getElementById(id).addEventListener('input', e => {
+  const v = e.target.value.trim(), f = {...(S.filters.since || {})};
+  if (v === '' || isNaN(+v)) delete f[k]; else f[k] = +v;
+  if (Object.keys(f).length) S.filters.since = f; else delete S.filters.since;
+  render();
+});
 loadCustom();
 liveRefresh();
 // 手機 App 常放在背景：回到前景時若已超過 10 分鐘，重新抓最新價格
