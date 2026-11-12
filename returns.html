@@ -73,8 +73,11 @@
   tbody tr:nth-child(even) td { background:#f5f5f5; }
   tr.個股-穩 td { background:#e3f0e3; }
   tr.個股-穩:nth-child(even) td { background:#d3e7d3; }
-  tr.picked td { background:#fff3c4 !important; }
-  tbody tr:hover td { background:#fff7d6; }
+  tr.picked td { background-color:#fff3c4 !important; }
+  /* 排序中的欄：疊一層淡綠（不蓋掉斑馬紋、勾選底色）；匯出圖片同樣畫上 */
+  td.sorted { background-image:linear-gradient(rgba(44,122,63,.07), rgba(44,122,63,.07)); }
+  th.sorted { background-image:linear-gradient(rgba(44,122,63,.16), rgba(44,122,63,.16)); }
+  tbody tr:hover td { background-color:#fff7d6; }
   .note { color:#888; font-style:italic; font-size:10px; }
   th.yr, td.yr { width:5em; min-width:5em; }   /* 各年度欄寬一致 */
   .partial { font-style:italic; }
@@ -418,6 +421,8 @@ function body() {
     `<tr class="${r.類}${r.custom ? ' custom' : ''}${pk.has(r.代碼) ? ' picked' : ''}"><td class="c"><input type="checkbox" data-pick="${r.代碼}" ${pk.has(r.代碼) ? 'checked' : ''}>` +
     `<button class="rm" data-rm="${r.代碼}" title="從我的清單移除">✕</button></td>` +
     vc.map(c => cell(c, r)).join('') + `</tr>`).join('');
+  const si = vc.indexOf(sc) + 1;   // 排序欄（第 0 欄是勾選）
+  if (si) document.querySelectorAll('#t thead tr.cols, #t tbody tr').forEach(tr => tr.cells[si] && tr.cells[si].classList.add('sorted'));
   document.getElementById('info').textContent =
     `顯示 ${rows.length} / ${DATA.rows.length} 檔 · 勾選 ${pk.size} · ` +
     (S.view === 'recent' ? '近期＝最新收盤日往回推算，年化＝換算成平均每年' : '今年為年初至今，斜體＝上市當年');
@@ -574,7 +579,7 @@ async function exportImage() {
   const title = 'ETF 含息報酬率';
   const fd = filterDesc();
   // 排序欄：副標題註明，圖片上該欄底色略深
-  const sc = sortCol(), sortIdx = visCols().indexOf(sc) + 1;
+  const sc = sortCol();
   const sortTxt = `依「${sc.label.replace(/<br>/g, '')}」${sc.num ? (S.sortDir < 0 ? '由高到低' : '由低到高') : (S.sortDir < 0 ? 'Z→A' : 'A→Z')}排序`;
   const sub = [S.view === 'recent' ? '近期報酬率' : `各年度報酬率（${years[0] - S.span + 1}–${years[0]}）`,
     methodName(), sortTxt, `資料日期 ${DATA.updated.slice(0, 10)}`, fd].filter(Boolean).join('・');
@@ -617,7 +622,7 @@ async function exportImage() {
     if (x < PAD) { w -= PAD - x; x = PAD; } if (w <= 0) continue;   // 群組列第一格跨到勾選欄
     const y = r.top - tr0.top - GH + top, h = r.height;
     if (cs.backgroundColor !== 'rgba(0, 0, 0, 0)') { g.fillStyle = cs.backgroundColor; g.fillRect(x, y, w, h); }
-    if (sortIdx && c.cellIndex === sortIdx) { g.fillStyle = c.tagName === 'TH' ? 'rgba(44,122,63,.16)' : 'rgba(44,122,63,.07)'; g.fillRect(x, y, w, h); }
+    if (c.classList.contains('sorted')) { g.fillStyle = c.tagName === 'TH' ? 'rgba(44,122,63,.16)' : 'rgba(44,122,63,.07)'; g.fillRect(x, y, w, h); }
     if (cs.borderTopStyle !== 'none') { g.strokeStyle = cs.borderTopColor; g.lineWidth = 1; g.strokeRect(x + .5, y + .5, w, h); }
     const lbl = c.querySelector('.lbl');
     const lines = lbl ? lbl.innerHTML.split('<br>').map(s => s.replace(/<[^>]*>/g, '')) :
