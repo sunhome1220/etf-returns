@@ -163,6 +163,59 @@ def recent_returns(pts, divs):
     return out
 
 
+
+RISK_WINDOWS = [("hi52", 12), ("mdd1", 12), ("mdd3", 36), ("vol", 12)]
+
+
+def risk_stats(pts, divs, keys=None):
+    """風險指標（起點規則與近期報酬率相同；上市時間比期間短為「上市未滿」）：
+    hi52＝距 52 週高點、mdd1／mdd3＝近一年／三年最大回撤、vol＝近一年年化波動度，單位 %。
+    再投入（v）用還原價；不再投入（s）從高點 i 到 j 的跌幅＝（j 收盤＋i 之後的除息合計）÷ i 收盤 − 1。
+    波動度用每日還原價報酬（除息日也已含息），兩種算法相同。"""
+    end_d = pts[-1][0]
+    cd, acc, k = [], 0.0, 0
+    ds = sorted(divs)
+    for d, _, _ in pts:   # cd[i]：pts[0] 之後到第 i 天的除息累計
+        while k < len(ds) and ds[k][0] <= d:
+            if ds[k][0] > pts[0][0]:
+                acc += ds[k][1]
+            k += 1
+        cd.append(acc)
+    out = {}
+    for key, months in RISK_WINDOWS:
+        if keys and key not in keys:
+            continue
+        t = add_months(end_d, -months)
+        si = None
+        for i, p in enumerate(pts):
+            if p[0] > t:
+                break
+            si = i
+        if si is None:
+            out[key] = {"note": "上市未滿"}
+            continue
+        idx = range(si, len(pts))
+        if key == "vol":
+            rs = [pts[i][2] / pts[i - 1][2] - 1 for i in idx if i > si]
+            m = sum(rs) / len(rs)
+            sd = (sum((x - m) ** 2 for x in rs) / (len(rs) - 1)) ** .5 * 252 ** .5 * 100
+            out[key] = {"v": sd, "s": sd}
+            continue
+        dd_s = lambda i, j: (pts[j][1] + cd[j] - cd[i]) / pts[i][1] - 1
+        if key == "hi52":
+            n = len(pts) - 1
+            out[key] = {"v": (pts[n][2] / max(pts[i][2] for i in idx) - 1) * 100,
+                        "s": min(dd_s(i, n) for i in idx) * 100}
+        else:
+            peak, mv = 0, 0
+            for j in idx:
+                peak = max(peak, pts[j][2])
+                mv = min(mv, pts[j][2] / peak - 1)
+            ms = min(min(dd_s(i, j) for i in range(si, j + 1)) for j in idx)
+            out[key] = {"v": mv * 100, "s": ms * 100}
+    return out
+
+
 def analyze(row, years, hist=None):
     hist = {} if hist is None else hist
     key = hist_key(row)
@@ -285,6 +338,7 @@ def analyze(row, years, hist=None):
     settled = {y: v for y, v in new.items() if int(y) < years[0] and pts[-1][0] > dt.date(int(y), 12, 31)}
     hist[key] = {"listed": out["listed"], "from": frm, "returns": {**done, **settled}}
     out["recent"] = recent_returns(pts, divs)
+    out["risk"] = risk_stats(pts, divs)
     # 今年已除息：今年除息日已過的每股股息合計（元）
     out["divYtd"] = round(sum(v for d, v in divs if d.year == years[0] and d <= pts[-1][0]), 3)
 
