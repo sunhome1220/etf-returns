@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>主動型比較 | 投資工具</title>
+<style>
+  :root { --bd:#d9d9d9; --green:#2c7a3f; --text:#222; --muted:#666; --pos:#e0218a; --neg:#2e7d32;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#6250d6; --s8:#e34948; --bench:#52514e; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:12px 16px 32px; font:14px/1.5 "Microsoft JhengHei","PingFang TC",sans-serif; background:#fff; color:var(--text); }
+  h1 { font-size:18px; margin:0 0 8px; }
+  h1 a { color:var(--green); text-decoration:none; font-weight:normal; }
+  h1 .sub { font-size:14px; margin-left:12px; white-space:nowrap; }
+  .lead { color:var(--muted); font-size:13px; margin:0 0 10px; }
+  .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; font-size:13px; }
+  .bar select, .bar input { font:inherit; padding:3px 6px; border:1px solid #bbb; border-radius:4px; background:#fff; }
+  .bar label { display:flex; align-items:center; gap:4px; }
+  #info { color:var(--muted); font-size:12px; }
+  .chart { position:relative; border:1px solid var(--bd); border-radius:6px; padding:8px 8px 4px; margin-bottom:6px; background:#fcfcfb; }
+  .chart h2 { font-size:14px; margin:0 0 2px 4px; }
+  .chart h2 .gm { font-weight:normal; color:var(--muted); font-size:12px; }
+  #svg { display:block; width:100%; height:300px; touch-action:pan-y; }
+  #svg .grid line { stroke:#e6e6e3; }
+  #svg .ax text { fill:#777; font-size:11px; }
+  #svg .base { stroke:#bdbdb8; stroke-dasharray:3 3; }
+  #svg path.ln { fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+  #svg path.ln.bench { stroke:var(--bench); stroke-dasharray:5 4; }
+  #svg .cross { stroke:#999; }
+  #svg .dot { stroke:#fcfcfb; stroke-width:2; }
+  .tip { position:absolute; pointer-events:none; background:#fff; border:1px solid #ccc; border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.15); padding:6px 8px; font-size:12px; line-height:1.5; display:none; white-space:nowrap; z-index:5; }
+  .tip b { display:block; margin-bottom:2px; }
+  .tip .sw, .legend .sw { display:inline-block; width:12px; height:3px; border-radius:2px; vertical-align:middle; margin-right:5px; }
+  .tip .v { float:right; margin-left:14px; font-variant-numeric:tabular-nums; }
+  .legend { display:flex; flex-wrap:wrap; gap:4px 14px; font-size:12px; margin:4px 4px 6px; }
+  .legend span.it { cursor:pointer; color:var(--text); }
+  .legend .sw.dash { background:repeating-linear-gradient(90deg, var(--bench) 0 5px, transparent 5px 8px) !important; }
+  .hint { font-size:11px; color:#888; margin:0 4px 4px; }
+  .wrap { overflow:auto; max-height:calc(100vh - 80px); border:1px solid var(--bd); border-radius:4px; }
+  table { border-collapse:separate; border-spacing:0; font-size:13px; white-space:nowrap; }
+  th, td { padding:4px 8px; border-bottom:1px solid #eee; }
+  thead th { position:sticky; top:0; z-index:3; background:#f3f3f3; font-size:12px; line-height:1.25; cursor:pointer; user-select:none; border-bottom:1px solid var(--bd); }
+  thead th.on { background:#dfeadf; }
+  thead th .s { color:#999; font-size:10px; margin-left:2px; }
+  tbody td { background:#fff; }
+  tbody tr:nth-child(even) td { background:#f7f7f7; }
+  tr.bench td { background:#eef3ee !important; font-weight:600; }
+  td.stk, th.stk { position:sticky; left:0; z-index:2; border-right:1px solid var(--bd); }
+  thead th.stk { z-index:4; }
+  td.r { text-align:right; font-variant-numeric:tabular-nums; } td.c { text-align:center; }
+  td.sorted { background-image:linear-gradient(rgba(44,122,63,.07), rgba(44,122,63,.07)); }
+  .pos { color:var(--pos); } .neg { color:var(--neg); }
+  .note { color:#999; font-style:italic; font-size:11px; }
+  .code { color:#777; font-size:11px; margin-right:4px; }
+  .sw { display:inline-block; width:10px; height:10px; border-radius:2px; }
+  .foot { font-size:11px; color:#888; margin:6px 0 0; }
+  .explain { max-width:760px; margin:18px 0 8px; font-size:13px; color:#444; line-height:1.6; }
+  .explain details { border-top:1px solid #eee; }
+  .explain summary { padding:7px 4px; font-weight:600; font-size:14px; cursor:pointer; color:var(--green); }
+  .explain ul { margin:0 0 8px; padding-left:1.3em; }
+  @media (max-width:600px) {
+    body { padding:8px; font-size:13px; }
+    h1 { font-size:16px; } h1 .sub { margin-left:8px; font-size:13px; }
+    .bar { gap:6px; font-size:12px; }
+    #svg { height:240px; }
+    table { font-size:12px; } th, td { padding:3px 5px; }
+    .mh { display:none; }   /* 手機省寬度：上市日、起點、波動度、上市以來年化 */
+  }
+</style>
+</head>
+<body>
+<h1><a href="./" title="回首頁">投資工具</a> › 主動型比較
+  <a href="returns.html" class="sub">各年度含息報酬率</a><a href="watchlist.html" class="sub">我的追蹤清單</a><span data-install></span></h1>
+<p class="lead">預設清單中類別「主動」的 ETF，以同一段期間和大盤比較。上市比起點晚的，從上市首日起算，基準也從同一天起算。</p>
+<div class="bar">
+  <select id="per" title="比較期間">
+    <option value="ytd">今年以來</option><option value="m1">近一月</option><option value="m3">近三月</option>
+    <option value="m6">近半年</option><option value="y1">近一年</option><option value="list">各自上市以來</option><option value="custom">自訂起點</option>
+  </select>
+  <input id="from" type="date" style="display:none">
+  <select id="method" title="報酬率算法"><option value="s">股息不再投入</option><option value="v">股息再投入</option></select>
+  <label>基準<select id="bench"><option value="IR0001">台灣報酬指數</option><option value="0050">0050</option></select></label>
+  <span id="info"></span>
+</div>
+<div class="chart">
+  <h2>走勢比較<span class="gm" id="chartSub"></span></h2>
+  <svg id="svg" role="img" aria-label="走勢比較圖"></svg>
+  <div class="tip" id="tip"></div>
+  <div class="legend" id="legend"></div>
+  <div class="hint">圖上最多 8 檔，在表格「圖」欄勾選切換；點圖例可移除。</div>
+</div>
+<div class="wrap"><table id="t"><thead></thead><tbody></tbody></table></div>
+<p class="foot" id="foot"></p>
+<section class="explain">
+  <details>
+    <summary>怎麼比較</summary>
+    <ul>
+      <li><b>期間報酬</b>：從起點收盤到最新價。不再投入＝（最新價＋期間內除息合計−起點收盤價）÷ 起點收盤價；再投入＝最新還原價 ÷ 起點還原價 − 1。起點取該日或之前最後一個交易日，與主頁近期報酬率相同。</li>
+      <li><b>基準同期</b>與<b>超額報酬</b>：基準從同一天起算的報酬率；超額報酬＝期間報酬 − 基準同期，正的表示打敗大盤。台灣報酬指數已含息，兩種算法都用指數本身。</li>
+      <li>上市比起點晚的標的，起點改為上市首日（「起點」欄顯示日期），基準也從那天起算，所以超額報酬仍是同期比較；但不同標的的期間長短不同，期間報酬不宜直接互比。</li>
+      <li><b>最大回撤</b>：期間內從高點跌到之後低點的最大跌幅。<b>波動度</b>：期間內每日報酬率的標準差 × √252。<b>報酬回撤比</b>＝期間報酬 ÷ |最大回撤|，越高代表承擔同樣的跌幅換到越多報酬。</li>
+      <li><b>上市以來</b>：從各自上市首日收盤起算到最新價；未滿一年不換算年化（短期年化會被放大，參考價值低）。</li>
+      <li>走勢圖從起點設為 100，基準為灰色虛線。上市比起點晚的，從上市當天基準線的高度起畫：線在基準上方，就是上市以來贏過基準。滑鼠移到線上看到的報酬率，是從各自起點算起。</li>
+    </ul>
+  </details>
+  <details>
+    <summary>資料來源與更新</summary>
+    <ul>
+      <li>每日收盤與除息來自 Yahoo（缺歷史時改用證交所），台灣報酬指數來自證交所，隨主頁排程更新。</li>
+      <li>網頁打開時與台股盤中每分鐘，以證交所即時報價更新最新價；報酬指數盤中依加權指數漲跌估算（標示「≈」）。</li>
+      <li>主動型名單為預設清單中類別「主動」的標的；在「我的追蹤清單」自行新增的不會出現在這裡。</li>
+    </ul>
+  </details>
+</section>
+<script src="compare.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

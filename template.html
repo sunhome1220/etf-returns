@@ -21,7 +21,7 @@
   h1 { font-size:18px; margin:0 0 8px; }
   h1 .home { color:#2c7a3f; text-decoration:none; font-weight:normal; }
   h1 .home:hover { text-decoration:underline; }
-  h1 .sub { font-size:14px; margin-left:16px; }
+  h1 .sub { font-size:14px; margin-left:16px; white-space:nowrap; }
   .manage { color:#2c7a3f; font-size:13px; }
   .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; font-size:13px; }
   .bar input[type=search] { padding:4px 8px; border:1px solid var(--bd); border-radius:4px; width:160px; }
@@ -94,6 +94,12 @@
   .pop label { display:flex; gap:6px; padding:2px 6px; cursor:pointer; }
   .pop label:hover { background:#f2f7ff; }
   .pop .ttl { font-weight:600; margin-bottom:6px; }
+  .pop .it { display:flex; align-items:center; } .pop .it label { flex:1; }
+  .pop .it.grp { padding:2px 6px; font-weight:600; color:#2c7a3f; } .pop .gname { flex:1; }
+  .pop .sub label { padding-left:22px; }
+  .pop .mv { display:flex; gap:2px; margin-right:4px; }
+  .pop .mv button { padding:0 5px; font-size:11px; line-height:16px; flex:none; }
+  .pop .mv button:disabled { opacity:.3; cursor:default; }
   .pop .rng label { display:flex; align-items:center; gap:3px; padding:0; cursor:default; } .pop .rng label:hover { background:none; }
   .err { color:#c00; }
   .multi { display:flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--bd); border-radius:4px; background:#fafafa; }
@@ -115,7 +121,7 @@
   tfoot td > div { width:0; min-width:100%; }   /* 不讓頁尾文字撐寬欄位 */
   @media (max-width:600px) {
     body { padding:8px; font-size:13px; }
-    h1 { font-size:16px; } h1 .sub { margin-left:8px; } #optBtn { margin-left:6px; }
+    h1 { font-size:16px; } h1 .sub { margin-left:8px; font-size:13px; } #optBtn { margin-left:6px; }
     :root { --tbase:12px; }
     .rm { display:none; }   /* 手機省寬度；移除請到「我的追蹤清單」 */
     .bar { gap:6px; font-size:12px; }   /* 查詢選項：字小一點、年度範圍不換行 */
@@ -131,7 +137,7 @@
 </head>
 <body>
 <h1><a href="./" class="home" title="回首頁">投資工具</a> › 各年度含息報酬率
-  <a href="watchlist.html" class="home sub">我的追蹤清單</a>
+  <a href="watchlist.html" class="home sub">我的追蹤清單</a><a href="compare.html" class="home sub">主動型比較</a>
   <button id="optBtn"></button><span class="fzb"><button id="fzDown" title="表格字體縮小">A−</button><button id="fzUp" title="表格字體放大">A＋</button></span><span data-install></span></h1>
 <div id="opts">
 <div class="bar">
@@ -320,7 +326,21 @@ function save() { try { localStorage.setItem('etf-state', JSON.stringify(S)); } 
 const inView = c => c.year ? S.view === 'year' && c.year > years[0] - S.span
   : c.period ? S.view === 'recent' && (!c.multi || S[c.multi]) : true;
 const defaultSort = () => S.view === 'recent' ? 'py1' : 'y' + years[0];
-const visCols = () => cols.filter(c => inView(c) && !S.hiddenCols.includes(c.k));
+// 欄位順序：S.colOrder＝使用者調整後的順序（單位）；報酬率欄（各年度或近期）算一個單位，整組移動
+const unitOf = c => c.year || c.period ? 'RET' : c.k;
+const UNIT_NAME = {get RET() { return S.view === 'recent' ? '近期報酬率' : '各年度報酬率'; }};
+function units() {
+  const def = [...new Set(cols.map(unitOf))];
+  const order = (S.colOrder || []).filter(u => def.includes(u));
+  def.forEach((u, i) => {   // 新增的欄位（或新的年度）放在預設順序的前一個單位後面
+    if (order.includes(u)) return;
+    const prev = def.slice(0, i).reverse().find(p => order.includes(p));
+    order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, u);
+  });
+  return order;
+}
+const orderedCols = () => { const us = units(); return [...cols].sort((a, b) => us.indexOf(unitOf(a)) - us.indexOf(unitOf(b))); };
+const visCols = () => orderedCols().filter(c => inView(c) && !S.hiddenCols.includes(c.k));
 const picked = () => new Set(S.picked);
 
 // 匯出圖片副標題用：目前的查詢篩選條件（文字說明）
@@ -377,7 +397,13 @@ function cmp(c, dir) {
 
 function head() {
   const vc = visCols();
-  const nYear = vc.filter(c => c.year || c.period).length, nRisk = vc.filter(c => c.risk).length;
+  const nYear = vc.filter(c => c.year || c.period).length;
+  // 群組列：連續的報酬率欄、風險指標欄各一格標題，其餘留白（欄位順序可調整，所以逐段組）
+  const grpOf = c => c.year || c.period ? 'ret' : c.risk ? 'risk' : '';
+  const runs = [];
+  for (const c of vc) { const g = grpOf(c), last = runs[runs.length - 1]; if (last && last.g === g) last.n++; else runs.push({g, n:1}); }
+  const retTitle = nYear <= 2 ? `${S.view === 'recent' ? '近期' : ''}報酬率<br><span class="gm">${S.calc === 'simple' ? '不再投入' : '再投入'}</span>`   // 欄位少時用短標題
+    : `${S.view === 'recent' ? '近期' : '各年度'}含息報酬率<span class="gm">（${methodName()}）</span>`;
   const th = vc.map(c => {
     const s = S.sortKey === c.k ? (S.sortDir < 0 ? '▼' : '▲') : '⇅';
     return `<th${c.year || c.risk ? ' class="yr"' : c.period ? ' class="yr pd"' : c.k === '名稱' ? ' class="stk"' : ''}><div class="h"><span class="tools"><span class="s" data-sort="${c.k}">${s}</span>` +
@@ -388,10 +414,7 @@ function head() {
   const allOn = DATA.rows.length && DATA.rows.every(r => pk.has(r.代碼));
   document.querySelector('#t thead').innerHTML =
     `<tr class="group"><th style="border:none"></th>` +
-    (vc.length - nYear - nRisk ? `<th colspan="${vc.length - nYear - nRisk}" style="border:none"></th>` : '') +
-    (nYear ? `<th colspan="${nYear}" class="grp">${nYear <= 2 ? `${S.view === 'recent' ? '近期' : ''}報酬率<br><span class="gm">${S.calc === 'simple' ? '不再投入' : '再投入'}</span>`   // 欄位少時用短標題
-      : `${S.view === 'recent' ? '近期' : '各年度'}含息報酬率<span class="gm">（${methodName()}）</span>`}</th>` : '') +
-    (nRisk ? `<th colspan="${nRisk}" class="grp">風險指標</th>` : '') + `</tr>` +
+    runs.map(r => r.g ? `<th colspan="${r.n}" class="grp">${r.g === 'ret' ? retTitle : '風險指標'}</th>` : `<th colspan="${r.n}" style="border:none"></th>`).join('') + `</tr>` +
     `<tr class="cols"><th><input type="checkbox" id="pickAll" title="全選/全不選" ${allOn ? 'checked' : ''}></th>${th}</tr>`;
   // 欄名列固定在群組列下方；群組列高度隨字級改變
   const gh = document.querySelector('#t thead tr.group').offsetHeight;
@@ -534,14 +557,38 @@ function openFilter(k, btn) {
 }
 
 function openCols(btn) {
-  const pop = popAt(btn, `<div class="ttl">顯示欄位</div>
-    <div class="row"><button data-a="all">全選</button><button data-a="none">全不選</button></div>
-    <div class="list">${cols.filter(inView).map(c =>
-      `<label><input type="checkbox" value="${c.k}" ${S.hiddenCols.includes(c.k) ? '' : 'checked'}>${c.label.replace('<br>', '')}</label>`).join('')}</div>`);
+  // 勾選＝顯示；↑↓＝調整順序（報酬率欄整組移動）
+  const listHtml = () => {
+    const us = units(), vis = orderedCols().filter(inView);
+    return us.filter(u => vis.some(c => unitOf(c) === u)).map((u, i, arr) => {
+      const mv = `<span class="mv"><button data-mv="${u}" data-d="-1" ${i ? '' : 'disabled'} title="往前（左）移">↑</button><button data-mv="${u}" data-d="1" ${i < arr.length - 1 ? '' : 'disabled'} title="往後（右）移">↓</button></span>`;
+      const box = c => `<label><input type="checkbox" value="${c.k}" ${S.hiddenCols.includes(c.k) ? '' : 'checked'}>${c.label.replace(/<br>/g, '')}</label>`;
+      const cs = vis.filter(c => unitOf(c) === u);
+      return UNIT_NAME[u] ? `<div class="it grp"><span class="gname">${UNIT_NAME[u]}</span>${mv}</div><div class="sub">${cs.map(box).join('')}</div>`
+        : `<div class="it">${box(cs[0])}${mv}</div>`;
+    }).join('');
+  };
+  const pop = popAt(btn, `<div class="ttl">顯示欄位與順序</div>
+    <div class="row"><button data-a="all">全選</button><button data-a="none">全不選</button><button data-a="order">預設順序</button></div>
+    <div class="list">${listHtml()}</div>`);
+  pop.style.width = '250px';
   const sync = () => { S.hiddenCols = [...pop.querySelectorAll('.list input')].filter(b => !b.checked).map(b => b.value); render(); };
   pop.addEventListener('change', sync);
   pop.addEventListener('click', e => {
+    const m = e.target.closest('[data-mv]');
+    if (m) {   // 和前／後一個（目前模式看得到的）單位交換
+      const us = units(), vis = new Set(orderedCols().filter(inView).map(unitOf)), shown = us.filter(u => vis.has(u));
+      const i = shown.indexOf(m.dataset.mv), j = i + +m.dataset.d;
+      if (j < 0 || j >= shown.length) return;
+      const a = us.indexOf(shown[i]), b = us.indexOf(shown[j]);
+      [us[a], us[b]] = [us[b], us[a]];
+      S.colOrder = us; render();
+      const list = pop.querySelector('.list'), top = list.scrollTop;
+      list.innerHTML = listHtml(); list.scrollTop = top;
+      return;
+    }
     const a = e.target.dataset.a; if (!a) return;
+    if (a === 'order') { delete S.colOrder; render(); pop.querySelector('.list').innerHTML = listHtml(); return; }
     pop.querySelectorAll('.list input').forEach(b => b.checked = a === 'all');
     sync();
   });

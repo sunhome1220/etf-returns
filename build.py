@@ -164,6 +164,72 @@ def recent_returns(pts, divs):
 
 
 
+# ---- 主動型比較頁（compare.html）：主動型 ETF 與基準（0050、台灣報酬指數）的每日資料 ----
+COMPARE_START = dt.date(2024, 11, 1)
+COMPARE_PATH = os.path.join(HERE, "compare.json")
+COMPARE_BENCH = ["0050"]
+
+
+def is_compare(row):
+    return row.get("類") == "主動" or row["代碼"] in COMPARE_BENCH
+
+
+def ir_daily(hist):
+    """台灣報酬指數每日收盤 [(date, 值)]，從 COMPARE_START 起；已結束的月份記在 history.json（_irdaily）。"""
+    cache = hist.setdefault("_irdaily", {})
+    today = dt.date.today()
+    out, y, m = [], COMPARE_START.year, COMPARE_START.month
+    while (y, m) <= (today.year, today.month):
+        key = "%04d-%02d" % (y, m)
+        rows = cache.get(key)
+        if rows is None:
+            try:
+                rows = [(d.isoformat(), v) for d, v in twse_month("MFI94U", 1, y, m)]
+            except Exception as e:
+                print("台灣報酬指數 %s 讀取失敗 %s" % (key, e))
+                break
+            if (y, m) < (today.year, today.month) and rows:
+                cache[key] = rows
+        out += [(dt.date.fromisoformat(d), v) for d, v in rows]
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return [p for p in out if p[0] >= COMPARE_START]
+
+
+def build_compare(series, ir):
+    """series {代碼: (pts, divs, meta)} → compare.json 的內容。所有標的對齊同一組交易日（缺的日子沿用前一天），
+    c＝收盤、a＝還原價，o＝第一筆在 dates 的位置，d＝[[除息日位置, 金額]]。"""
+    dates = sorted({p[0] for pts, _, _ in series.values() for p in pts})
+    if not dates:
+        return None
+    pos = {d: i for i, d in enumerate(dates)}
+
+    def fill(pairs):   # [(date, 值)] → 從第一筆起每個交易日的值（缺的沿用前一天）
+        vals = dict(pairs)
+        o = next(i for i, d in enumerate(dates) if d >= pairs[0][0])
+        arr, last = [], None
+        for d in dates[o:]:
+            last = vals.get(d, last)
+            arr.append(last)
+        return o, arr
+
+    funds = []
+    for code, (pts, divs, meta) in series.items():
+        if not pts:
+            continue
+        o, c = fill([(d, round(cl, 4)) for d, cl, _ in pts])
+        _, a = fill([(d, round(ad, 4)) for d, _, ad in pts])
+        dv = [[next((i for i in range(o, len(dates)) if dates[i] >= d), len(dates) - 1), round(v, 6)]
+              for d, v in divs if d > pts[0][0]]
+        funds.append({"代碼": code, **meta, "o": o, "c": c, "a": a, "d": dv})
+    bench = {}
+    ir = [p for p in ir if p[0] <= dates[-1]]
+    if ir:
+        o, v = fill([(d, round(x, 2)) for d, x in ir])
+        bench["IR0001"] = {"名稱": "台灣報酬指數", "o": o, "v": v}
+    return {"updated": dt.datetime.now(TPE).strftime("%Y/%m/%d %H:%M"),
+            "dates": [d.isoformat() for d in dates], "funds": funds, "bench": bench}
+
+
 RISK_WINDOWS = [("hi52", 12), ("mdd1", 12), ("mdd3", 36), ("vol", 12)]
 
 
@@ -347,6 +413,8 @@ def analyze(row, years, hist=None):
         cutoff = pts[-1][0] - dt.timedelta(days=380)
         ds = [d for d, _ in divs if d >= cutoff]
         out["除息"] = div_months(ds, young=pts[0][0] > cutoff)
+    if is_compare(row):   # 主動型比較頁用的每日資料（build 取出後寫入 compare.json，不放進 returns.html）
+        out["_series"] = ([p for p in pts if p[0] >= COMPARE_START], [dv for dv in divs if dv[0] >= COMPARE_START])
     return out
 
 
@@ -602,7 +670,13 @@ def build(rows, years, hist=None, old=None):
         if not r.get("名稱"):
             r["名稱"] = (re.fullmatch(r"\d{4,6}[A-Z]?", r["代碼"]) and tw_name(r["代碼"])) or r.get("_yname") or r["代碼"]
         finish_row(r, markets)
+    series = {}
+    for r in results:   # 主動型比較頁的每日資料另外輸出
+        sr = r.pop("_series", None)
+        if sr and not r.get("error"):
+            series[r["代碼"]] = sr + ({"名稱": r["名稱"], "類": r.get("類"), "since": r.get("since")},)
     return {
+        "_series": series,
         "years": years,
         "updated": dt.datetime.now(TPE).strftime("%Y/%m/%d %H:%M"),
         "markets": markets,
@@ -649,6 +723,12 @@ def main():
 
     hist = {} if args.full else load_hist()
     payload = build(load_rows(args.csv), get_years(args.years), hist, load_old_rows(args.out))
+    series = payload.pop("_series")
+    cmp = build_compare(series, ir_daily(hist)) if series else None
+    if cmp:
+        with open(COMPARE_PATH, "w", encoding="utf-8") as f:
+            json.dump(cmp, f, ensure_ascii=False, separators=(",", ":"))
+        print("已輸出 %s（%d 檔、%d 個交易日、基準 %s）" % (COMPARE_PATH, len(cmp["funds"]), len(cmp["dates"]), "、".join(cmp["bench"]) or "無"))
     save_hist(hist)
     for r in payload["rows"]:
         print("%-8s %-12s %s" % (r["代碼"], r["名稱"], r.get("error", "OK")))
