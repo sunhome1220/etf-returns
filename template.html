@@ -21,7 +21,7 @@
   h1 { font-size:18px; margin:0 0 8px; }
   h1 .home { color:#2c7a3f; text-decoration:none; font-weight:normal; }
   h1 .home:hover { text-decoration:underline; }
-  h1 .sub { font-size:14px; margin-left:16px; }
+  h1 .sub { font-size:14px; margin-left:16px; white-space:nowrap; }
   .manage { color:#2c7a3f; font-size:13px; }
   .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; font-size:13px; }
   .bar input[type=search] { padding:4px 8px; border:1px solid var(--bd); border-radius:4px; width:160px; }
@@ -115,7 +115,7 @@
   tfoot td > div { width:0; min-width:100%; }   /* 不讓頁尾文字撐寬欄位 */
   @media (max-width:600px) {
     body { padding:8px; font-size:13px; }
-    h1 { font-size:16px; } h1 .sub { margin-left:8px; } #optBtn { margin-left:6px; }
+    h1 { font-size:16px; } h1 .sub { margin-left:8px; font-size:13px; } #optBtn { margin-left:6px; }
     :root { --tbase:12px; }
     .rm { display:none; }   /* 手機省寬度；移除請到「我的追蹤清單」 */
     .bar { gap:6px; font-size:12px; }   /* 查詢選項：字小一點、年度範圍不換行 */
@@ -131,7 +131,7 @@
 </head>
 <body>
 <h1><a href="./" class="home" title="回首頁">投資工具</a> › 各年度含息報酬率
-  <a href="watchlist.html" class="home sub">我的追蹤清單</a>
+  <a href="watchlist.html" class="home sub">我的追蹤清單</a><a href="compare.html" class="home sub">主動型比較</a>
   <button id="optBtn"></button><span class="fzb"><button id="fzDown" title="表格字體縮小">A−</button><button id="fzUp" title="表格字體放大">A＋</button></span><span data-install></span></h1>
 <div id="opts">
 <div class="bar">

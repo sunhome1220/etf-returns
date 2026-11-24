@@ -11,6 +11,7 @@
 | `template.html` | 報酬率頁的原始碼；`build.py` 把資料塞進 `/*DATA*/null` 產生 `returns.html` |
 | `returns.html` | 產生出來的頁面（含資料）。**改 `template.html` 時要同步改 `returns.html`**，否則要等下次排程才生效 |
 | `app.js` | 各頁共用：`CHANGELOG`（更新內容通知）、PWA 安裝、service worker 註冊 |
+| `compare.html` / `compare.js` | 「主動型比較」頁；讀 `build.py` 產生的 `compare.json`（類別「主動」與 0050 的每日收盤、還原價、除息，以及台灣報酬指數每日值）|
 | `watchlist.html` / `watchlist.js` | 「我的追蹤清單」；使用者自訂項目存在瀏覽器 |
 | `worker.js` | Cloudflare Worker（資料代理），網址在 `proxy.txt`。**使用者要自己到 Cloudflare 貼上部署**，改了要附完整程式碼請他部署 |
 | `.github/workflows/update.yml` | 「更新報酬率」：平日台北 15:17、06:17（常延遲數小時），可手動觸發 |
