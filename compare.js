@@ -165,10 +165,14 @@ function renderChart(list, s0, n) {
   const sel = S.chart.map(k => byCode[k]).filter(r => r && !r.na && r.s != null);
   const bs = s0 >= 0 ? s0 : Math.min(...sel.map(r => r.s), n - 1);
   const series = sel.map(r => ({code:r.code, name:r.name, color:colorOf(r.code), s:r.s, ys:[]}));
-  for (const sr of series) for (let j = sr.s; j <= n; j++) sr.ys.push(100 * (1 + ret(sr.f = byCode[sr.code].f, sr.s, j)));
   const bn = S.bench === 'IR0001' ? (IR ? IR.名稱 : '') : '0050';
   const bench = {code:'bench', name:bn + '（基準）', color:'var(--bench)', s:bs, ys:[], bench:true};
   for (let j = bs; j <= n; j++) { const b = benchRet(bs, j); bench.ys.push(b == null ? null : 100 * (1 + b)); }
+  // 比起點晚上市的：從上市當天基準線的高度起畫，線在基準上方＝上市以來贏過基準
+  for (const sr of series) {
+    const f = byCode[sr.code].f, b0 = sr.s > bs ? bench.ys[sr.s - bs] ?? 100 : 100;
+    for (let j = sr.s; j <= n; j++) sr.ys.push(b0 * (1 + ret(f, sr.s, j)));
+  }
   const all = [...series, ...(bench.ys.some(v => v != null) ? [bench] : [])];
   const vals = all.flatMap(sr => sr.ys).filter(v => v != null);
   if (!vals.length || n - bs < 1) { svg.innerHTML = ''; $('legend').innerHTML = ''; return; }
@@ -198,7 +202,7 @@ function renderChart(list, s0, n) {
   svg.innerHTML = g;
   $('legend').innerHTML = all.map(sr => {
     const last = sr.ys[sr.ys.length - 1];
-    return `<span class="it" data-rm="${sr.bench ? '' : esc(sr.code)}" title="${sr.bench ? '' : '點一下從圖上移除'}"><span class="sw${sr.bench ? ' dash' : ''}" style="background:${sr.color}"></span>${esc(sr.name)} ${last == null ? '' : plain(last / 100 - 1)}</span>`;
+    return `<span class="it" data-rm="${sr.bench ? '' : esc(sr.code)}" title="${sr.bench ? '' : '點一下從圖上移除'}"><span class="sw${sr.bench ? ' dash' : ''}" style="background:${sr.color}"></span>${esc(sr.name)} ${last == null ? '' : plain(last / sr.ys[0] - 1)}</span>`;
   }).join('');
   $('chartSub').textContent = `（起點設為 100，${s0 >= 0 ? dates[s0] + ' 收盤起' : '各自上市首日起'}）`;
   // 滑鼠／手指移動：十字線與各線數值
@@ -211,7 +215,7 @@ function renderChart(list, s0, n) {
     $('cross').setAttribute('x1', x); $('cross').setAttribute('x2', x);
     $('dots').innerHTML = pts.map(p => `<circle class="dot" cx="${x}" cy="${Y(p.v)}" r="4" style="fill:${p.sr.color}"/>`).join('');
     hover.style.display = '';
-    tip.innerHTML = `<b>${dates[i]}</b>` + pts.map(p => `<div><span class="sw${p.sr.bench ? ' dash' : ''}" style="background:${p.sr.color}"></span>${esc(p.sr.name)}<span class="v">${plain(p.v / 100 - 1)}</span></div>`).join('');
+    tip.innerHTML = `<b>${dates[i]}</b>` + pts.map(p => `<div><span class="sw${p.sr.bench ? ' dash' : ''}" style="background:${p.sr.color}"></span>${esc(p.sr.name)}<span class="v">${plain(p.v / p.sr.ys[0] - 1)}</span></div>`).join('');
     tip.style.display = 'block';
     const box = svg.parentElement.getBoundingClientRect(), tw = tip.offsetWidth, cx = e.clientX - box.left;
     tip.style.left = (cx + 14 + tw > box.width ? Math.max(4, cx - 14 - tw) : cx + 14) + 'px';
