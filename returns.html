@@ -1068,13 +1068,17 @@ function computeLive(r, src, q) {
 }
 // 改用證交所歷史資料的標的（Yahoo 缺歷史）：以排程時的價格為基準，依即時價格等比例調整報酬率
 function scaleTwse(r, q) {
-  const b = r._base || (r._base = {price:r.price, date:r.date, returns:JSON.parse(JSON.stringify(r.returns || {})), recent:JSON.parse(JSON.stringify(r.recent || {}))});
+  const b = r._base || (r._base = {price:r.price, date:r.date, returns:JSON.parse(JSON.stringify(r.returns || {})), recent:JSON.parse(JSON.stringify(r.recent || {})), risk:r.risk});
   if (!b.price || !q) return;
   const k = q.price / b.price, sc = x => x == null ? x : ((1 + x / 100) * k - 1) * 100;
   const adj = o => o && o.note == null ? {...o, v:sc(o.v), s:sc(o.s)} : o;
   const y = years[0];
   r.returns = {...b.returns, [y]:adj(b.returns[y])};
   r.recent = Object.fromEntries(Object.entries(b.recent).map(([k2, o]) => [k2, adj(o)]));
+  if (b.risk) {   // 距 52 週高低點跟著現價等比例調整（超過高點＝0%、跌破低點＝0%）；回撤、波動度沿用排程
+    const cl = (o, f) => o && o.note == null ? {v:f(sc(o.v)), s:f(sc(o.s))} : o;
+    r.risk = {...b.risk, hi52:cl(b.risk.hi52, x => Math.min(0, x)), lo52:cl(b.risk.lo52, x => Math.max(0, x))};
+  }
   r.price = q.price;
   r.chg = q.prev ? (q.price / q.prev - 1) * 100 : r.chg;
   r.date = q.day;

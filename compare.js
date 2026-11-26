@@ -55,6 +55,18 @@ function vol(f, s, n) {
   const mu = rs.reduce((a, x) => a + x, 0) / rs.length;
   return Math.sqrt(rs.reduce((a, x) => a + (x - mu) ** 2, 0) / (rs.length - 1) * 252);
 }
+// 距 52 週高點／低點（與主頁相同，不隨上方期間變動）：近一年起點前已上市才算，否則「上市未滿」
+function hilo(f, n) {
+  const si = idxOnOrBefore(monthsBack(dates[n], 12));
+  if (si < 0 || (f ? si < f.o : !IR || si < IR.o)) return {note:'上市未滿'};
+  // 各天到現在的漲跌：最小值＝距高點（從高點跌了多少），最大值＝距低點（從低點漲了多少）
+  let hi = Infinity, lo = -Infinity;
+  for (let i = si; i <= n; i++) {
+    const x = !f ? IR.v[n - IR.o] / IR.v[i - IR.o] - 1 : ret(f, i, n);
+    hi = Math.min(hi, x); lo = Math.max(lo, x);
+  }
+  return {hi, lo};
+}
 // 起點：目標日或之前最後一個交易日（與主頁近期報酬率相同）
 function idxOnOrBefore(t) { let lo = 0, hi = dates.length - 1, r = -1; while (lo <= hi) { const mid = (lo + hi) >> 1; if (dates[mid] <= t) { r = mid; lo = mid + 1; } else hi = mid - 1; } return r; }
 function monthsBack(day, n) {
@@ -80,6 +92,7 @@ function rows() {
     if (s == null || s >= n) { r.na = s == null ? '資料不足' : '上市未滿'; out.push(r); continue; }
     r.R = ret(f, s, n); r.B = benchRet(s, n); r.EX = r.B == null ? null : r.R - r.B;
     r.MDD = mdd(f, s, n); r.VOL = vol(f, s, n); r.RD = r.MDD < -0.005 ? r.R / -r.MDD : null;
+    r.HL = hilo(f, n);
     if (lateList != null && lateList < n) {
       r.L = ret(f, lateList, n);
       const yrs = (Date.parse(dates[n]) - Date.parse(dates[lateList])) / 864e5 / 365.25;
@@ -93,11 +106,11 @@ function benchRows(s0, n) {   // 表格最上方的基準列（從共同起點�
   const s = Math.max(0, s0), out = [];
   if (F0050 && s >= F0050.o && s < n) {
     const R = ret(F0050, s, n), M = mdd(F0050, s, n);
-    out.push({bench:true, code:'0050', name:F0050.名稱, s, R, MDD:M, VOL:vol(F0050, s, n), RD:M < -0.005 ? R / -M : null});
+    out.push({bench:true, code:'0050', name:F0050.名稱, s, R, MDD:M, VOL:vol(F0050, s, n), RD:M < -0.005 ? R / -M : null, HL:hilo(F0050, n)});
   }
   if (IR && s >= IR.o && s < n) {
     const R = irRet(s, n), M = mdd(null, s, n, 'v');
-    out.push({bench:true, code:'IR0001', name:IR.名稱 + (LIVE.irEst ? '≈' : ''), s, R, MDD:M, VOL:vol(null, s, n), RD:M < -0.005 ? R / -M : null});
+    out.push({bench:true, code:'IR0001', name:IR.名稱 + (LIVE.irEst ? '≈' : ''), s, R, MDD:M, VOL:vol(null, s, n), RD:M < -0.005 ? R / -M : null, HL:hilo(null, n)});
   }
   return out;
 }
@@ -115,6 +128,8 @@ const COLS = [
   {k:'MDD', label:'最大<br>回撤', val:r => r.MDD},
   {k:'VOL', label:'波動度<br>(年化)', mh:true, val:r => r.VOL},
   {k:'RD', label:'報酬<br>回撤比', val:r => r.RD},
+  {k:'hi52', label:'距52週<br>高點', val:r => r.HL && r.HL.hi},
+  {k:'lo52', label:'距52週<br>低點', val:r => r.HL && r.HL.lo},
   {k:'L', label:'上市<br>以來', val:r => r.L},
   {k:'LA', label:'上市以來<br>年化', mh:true, val:r => r.LA},
 ];
@@ -134,6 +149,10 @@ function cell(c, r) {
     case 'ex': return `<td class="r${srt}">${r.bench ? '' : pct(r.EX)}</td>`;
     case 'MDD': return `<td class="r${srt}">${pct(r.MDD)}</td>`;
     case 'VOL': return `<td class="r${mh}${srt}">${plain(r.VOL)}</td>`;
+    case 'hi52': case 'lo52': {
+      const x = r.HL && (c.k === 'hi52' ? r.HL.hi : r.HL.lo);
+      return `<td class="r${srt}">${r.HL && r.HL.note ? `<span class="note">${r.HL.note}</span>` : pct(x)}</td>`;
+    }
     case 'RD': return `<td class="r${srt}">${r.RD == null ? '' : r.RD.toFixed(2)}</td>`;
     case 'L': return `<td class="r${srt}">${r.bench ? '' : pct(r.L)}</td>`;
     case 'LA': return `<td class="r${mh}${srt}">${r.bench ? '' : r.LAnote ? `<span class="note">${r.LAnote}</span>` : pct(r.LA)}</td>`;
