@@ -2,9 +2,9 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
@@ -15,6 +15,8 @@
 <meta name="apple-mobile-web-app-title" content="ETF報酬率">
 <title>各年度含息報酬率</title>
 <style>
+  /* 加入主畫面後狀態列透明（iPhone）：內容避開瀏海／動態島；一般瀏覽器 env() 為 0，不影響 */
+  html { padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
   :root { --bd:#d9d9d9; --hd:#f3f3f3; --active:#efe3ef; --up:#e0218a; --low:#1f4fbf; --down:#2e8b3d; }
   html { -webkit-text-size-adjust:100%; text-size-adjust:100%; }   /* 手機不要自動放大寬表格裡的小字 */
   body { margin:0; padding:16px; font:14px/1.4 "Microsoft JhengHei","PingFang TC",sans-serif; background:#fff; color:#222; }
