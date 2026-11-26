@@ -174,25 +174,30 @@ def is_compare(row):
     return row.get("類") == "主動" or row["代碼"] in COMPARE_BENCH
 
 
-def ir_daily(hist):
-    """台灣報酬指數每日收盤 [(date, 值)]，從 COMPARE_START 起；已結束的月份記在 history.json（_irdaily）。"""
-    cache = hist.setdefault("_irdaily", {})
+def index_daily(code, start, hist):
+    """證交所指數（IR0001／IX0001）每日收盤 [(date, 值)]，從 start 起；已結束的月份記在 history.json。"""
+    ep, col = TWSE_INDEX[code]
+    cache = hist.setdefault("_irdaily" if code == "IR0001" else "_daily_" + code, {})
     today = dt.date.today()
-    out, y, m = [], COMPARE_START.year, COMPARE_START.month
+    out, y, m = [], start.year, start.month
     while (y, m) <= (today.year, today.month):
         key = "%04d-%02d" % (y, m)
         rows = cache.get(key)
         if rows is None:
             try:
-                rows = [(d.isoformat(), v) for d, v in twse_month("MFI94U", 1, y, m)]
+                rows = [(d.isoformat(), v) for d, v in twse_month(ep, col, y, m)]
             except Exception as e:
-                print("台灣報酬指數 %s 讀取失敗 %s" % (key, e))
+                print("%s 每日指數 %s 讀取失敗 %s" % (code, key, e))
                 break
             if (y, m) < (today.year, today.month) and rows:
                 cache[key] = rows
         out += [(dt.date.fromisoformat(d), v) for d, v in rows]
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
-    return [p for p in out if p[0] >= COMPARE_START]
+    return [p for p in out if p[0] >= start]
+
+
+def ir_daily(hist):
+    return index_daily("IR0001", COMPARE_START, hist)
 
 
 def build_compare(series, ir):
@@ -603,6 +608,13 @@ def analyze_twse(row, years, hist, key, cached, missing):
         "_market": {"market": "台股", "city": "台北", "ts": close_ts, "closed": True, "off": 28800},
         "_yname": row.get("名稱"),
     })
+    # 風險指標（距 52 週高低點、最大回撤、波動度）：用每日指數，近三年回撤要抓三年多
+    try:
+        ser = index_daily(code, add_months(today.replace(day=1), -37), hist)
+        if len(ser) > 20:
+            out["risk"] = risk_stats([(d, v, v) for d, v in ser], [])
+    except Exception as e:
+        print("%s 風險指標計算失敗 %s" % (code, e))
     return out
 
 
