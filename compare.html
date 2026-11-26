@@ -48,15 +48,15 @@
   table { border-collapse:separate; border-spacing:0; font-size:13px; white-space:nowrap; }
   th, td { padding:4px 8px; border-bottom:1px solid #eee; }
   thead th { position:sticky; top:0; z-index:3; background:#f3f3f3; font-size:12px; line-height:1.25; cursor:pointer; user-select:none; border-bottom:1px solid var(--bd); }
-  thead th.on { background:#dfeadf; }
+  thead th.on { background:#f3f3f3 linear-gradient(rgba(44,122,63,.16), rgba(44,122,63,.16)); }
   thead th .s { color:#999; font-size:10px; margin-left:2px; }
   tbody td { background:#fff; }
   tbody tr:nth-child(even) td { background:#f7f7f7; }
-  tr.bench td { background:#eef3ee !important; font-weight:600; }
+  tr.bench td { background-color:#eef3ee !important; font-weight:600; }
   td.stk, th.stk { position:sticky; left:0; z-index:2; border-right:1px solid var(--bd); }
   thead th.stk { z-index:4; }
   td.r { text-align:right; font-variant-numeric:tabular-nums; } td.c { text-align:center; }
-  td.sorted { background-image:linear-gradient(rgba(44,122,63,.07), rgba(44,122,63,.07)); }
+  td.sorted { background-image:linear-gradient(rgba(44,122,63,.11), rgba(44,122,63,.11)); }   /* 排序中的欄：疊一層淡綠，不蓋掉斑馬紋 */
   .pos { color:var(--pos); } .neg { color:var(--neg); }
   .note { color:#999; font-style:italic; font-size:11px; }
   .code { color:#777; font-size:11px; margin-right:4px; }
