@@ -1,6 +1,9 @@
 // 各頁共用：手機 App（加入主畫面）、更新內容通知。
 // 新增功能時，在 CHANGELOG 最前面加一筆（id 遞增）；使用者下次打開會看到上次之後的更新內容。
 const CHANGELOG = [
+  {id:52, date:'2026-11-27', items:[
+    '加入主畫面的 App：iPhone 頂端狀態列改為透明（與頁面融為一體）；Android 改為全螢幕。需刪除主畫面圖示後重新加入才會生效',
+  ]},
   {id:51, date:'2026-11-27', items:[
     '預設清單加入印度 ETF：00652 富邦印度（指數）、00653L 富邦印度正2（槓桿），新增區域「印度」',
   ]},
@@ -183,7 +186,7 @@ const CHANGELOG = [
     .app-dlg ul, .app-dlg ol { margin:0; padding-left:1.3em; }
     .app-dlg p { margin:0 0 8px; }
     .app-dlg .ok { display:block; margin:14px 0 0 auto; padding:5px 16px; border:none; border-radius:4px; background:#2c7a3f; color:#fff; font:inherit; cursor:pointer; }
-    .app-bar { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); z-index:90; display:flex; align-items:center; gap:8px; max-width:calc(100% - 32px); box-sizing:border-box; background:#2c7a3f; color:#fff; border-radius:20px; padding:6px 8px 6px 16px; font-size:14px; box-shadow:0 4px 12px rgba(0,0,0,.2); cursor:pointer; white-space:nowrap; }
+    .app-bar { position:fixed; left:50%; bottom:calc(16px + env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:90; display:flex; align-items:center; gap:8px; max-width:calc(100% - 32px); box-sizing:border-box; background:#2c7a3f; color:#fff; border-radius:20px; padding:6px 8px 6px 16px; font-size:14px; box-shadow:0 4px 12px rgba(0,0,0,.2); cursor:pointer; white-space:nowrap; }
     .app-bar .txt { overflow:hidden; text-overflow:ellipsis; font-size:13px; opacity:.9; }
     .app-bar button { flex:none; border:none; font:inherit; cursor:pointer; }
     .app-bar .go { background:#fff; color:#2c7a3f; border-radius:14px; padding:2px 12px; font-weight:bold; }
@@ -240,7 +243,7 @@ const CHANGELOG = [
   const isIOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
   const inApp = /\bLine\/|FBAN|FBAV|Instagram|MicroMessenger/i.test(ua);
   const isMobile = isIOS || /Android/i.test(ua);
-  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const standalone = matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;   // 已從主畫面開啟（Android 為全螢幕）
   let deferred = null;
 
   function guide() {
