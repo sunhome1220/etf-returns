@@ -694,7 +694,7 @@ def build(rows, years, hist=None, old=None):
     for r in results:   # 主動型比較頁的每日資料另外輸出
         sr = r.pop("_series", None)
         if sr and not r.get("error"):
-            series[r["代碼"]] = sr + ({"名稱": r["名稱"], "類": r.get("類"), "since": r.get("since")},)
+            series[r["代碼"]] = sr + ({"名稱": r["名稱"], "類": r.get("類"), "since": r.get("since"), "nav": r.get("nav")},)
     return {
         "_series": series,
         "years": years,

@@ -82,13 +82,34 @@ function startIdx() {   // 共同起點；-1＝各自上市以來
   return Math.max(0, idxOnOrBefore(t));
 }
 
+// 淨值與折溢價（現價 ÷ 淨值 − 1）：排程時的證交所預估淨值，盤中經資料代理 /etfnav 更新
+function navOf(f) {
+  const price = f.c[f.c.length - 1], nav = f.nav;
+  return {nav, price, PREM:nav && nav.v && price ? price / nav.v - 1 : null};
+}
+function parseNav(j) {   // 與 build.py parse_etf_nav 相同：逐層找有 a（代碼）與 f（預估淨值）的物件
+  const out = {}, num = x => { const v = parseFloat(String(x ?? '').replace(/,/g, '')); return v > 0 ? v : null; };
+  const walk = o => {
+    if (Array.isArray(o)) return o.forEach(walk);
+    if (!o || typeof o !== 'object') return;
+    if ('a' in o && 'f' in o && typeof o.a !== 'object') {
+      const nav = num(o.f), prev = num(o.h);
+      if (nav || prev) out[String(o.a).trim()] = {v:nav || prev, prev, d:o.i || '', t:o.j || ''};
+      return;
+    }
+    Object.values(o).forEach(walk);
+  };
+  walk(j);
+  return out;
+}
+
 // ---- 計算每一列 ----
 function rows() {
   const n = dates.length - 1, s0 = startIdx(), out = [];
   for (const f of active) {
     const lateList = listedIn(f) || f.o > 0 ? f.o : null;   // 上市日在資料範圍內才有「上市以來」
     let s = s0 < 0 ? lateList : Math.max(s0, f.o), late = s0 >= 0 && f.o > s0;
-    const r = {f, code:f.代碼, name:f.名稱, since:f.since, s, late};
+    const r = {f, code:f.代碼, name:f.名稱, since:f.since, s, late, ...navOf(f)};
     if (s == null || s >= n) { r.na = s == null ? '資料不足' : '上市未滿'; out.push(r); continue; }
     r.R = ret(f, s, n); r.B = benchRet(s, n); r.EX = r.B == null ? null : r.R - r.B;
     r.MDD = mdd(f, s, n); r.VOL = vol(f, s, n); r.RD = r.MDD < -0.005 ? r.R / -r.MDD : null;
@@ -106,7 +127,7 @@ function benchRows(s0, n) {   // 表格最上方的基準列（從共同起點�
   const s = Math.max(0, s0), out = [];
   if (F0050 && s >= F0050.o && s < n) {
     const R = ret(F0050, s, n), M = mdd(F0050, s, n);
-    out.push({bench:true, code:'0050', name:F0050.名稱, s, R, MDD:M, VOL:vol(F0050, s, n), RD:M < -0.005 ? R / -M : null, HL:hilo(F0050, n)});
+    out.push({bench:true, code:'0050', name:F0050.名稱, ...navOf(F0050), s, R, MDD:M, VOL:vol(F0050, s, n), RD:M < -0.005 ? R / -M : null, HL:hilo(F0050, n)});
   }
   if (IR && s >= IR.o && s < n) {
     const R = irRet(s, n), M = mdd(null, s, n, 'v');
@@ -120,6 +141,8 @@ const pct = x => x == null ? '' : `<span class="${x < 0 ? 'neg' : 'pos'}">${(x *
 const plain = x => x == null ? '' : (x * 100).toFixed(DEC) + '%';
 const COLS = [
   {k:'name', label:'名稱', cls:'stk', val:r => r.code},
+  {k:'nav', label:'淨值', mh:true, val:r => r.nav && r.nav.v},
+  {k:'prem', label:'折溢價', val:r => r.PREM},
   {k:'since', label:'上市日', mh:true, val:r => r.since || ''},
   {k:'s', label:'起點', mh:true, val:r => r.s ?? -1},
   {k:'R', label:'期間<br>報酬', val:r => r.R},
@@ -142,6 +165,11 @@ function cell(c, r) {
         `<span class="sw" style="background:${on ? colorOf(r.code) : 'transparent'}"></span> `;
       return `<td class="stk${srt}">${sw}<span class="code">${esc(r.code)}</span>${esc(r.name)}</td>`;
     }
+    case 'nav': {
+      const t = r.nav ? `${r.nav.d ? r.nav.d.replace(/(\d{4})(\d\d)(\d\d)/, '$1/$2/$3') + ' ' + r.nav.t + ' ' : ''}預估淨值；現價 ${r.price}${r.nav.prev ? `；前一營業日淨值 ${r.nav.prev}` : ''}` : '';
+      return `<td class="r${mh}${srt}"${t ? ` title="${esc(t)}"` : ''}>${r.nav ? r.nav.v.toFixed(2) : ''}</td>`;
+    }
+    case 'prem': return `<td class="r${srt}"${r.PREM == null ? '' : ' title="正＝溢價（市價高於淨值），負＝折價"'}>${pct(r.PREM)}</td>`;
     case 'since': return `<td class="c${mh}${srt}">${r.bench ? '' : esc((r.since || '').slice(0, 10))}</td>`;
     case 's': return `<td class="c${mh}${srt}">${r.s == null ? '' : r.late ? `<span title="比起點晚上市，從上市首日起算">${dates[r.s].slice(5)}*</span>` : dates[r.s].slice(5)}</td>`;
     case 'R': return `<td class="r${srt}">${r.na ? `<span class="note">${r.na}</span>` : pct(r.R)}</td>`;
@@ -286,9 +314,12 @@ async function mis(px, codes) {
 async function live() {
   const px = await proxy();
   if (!px || !D) return;
-  const q = await mis(px, funds.map(f => f.代碼)), t = (await mis(px, ['t00'])).t00;
+  const [q, tq, nj] = await Promise.all([mis(px, funds.map(f => f.代碼)), mis(px, ['t00']),
+    fetch(`${px}/etfnav`).then(r => r.ok ? r.text() : '').then(x => x ? JSON.parse(x.replace(/^\uFEFF/, '')) : null).catch(() => null)]);
+  const t = tq.t00, navs = parseNav(nj);
+  for (const f of funds) if (navs[f.代碼]) f.nav = navs[f.代碼];
   const qs = Object.values(q);
-  if (!qs.length) return;
+  if (!qs.length) { if (Object.keys(navs).length) render(); return; }
   const day = qs.map(x => x.day).sort().pop();
   if (day > dates[dates.length - 1]) {   // 新的一天：每檔先沿用前一天，有報價的再換成最新價
     dates.push(day);
