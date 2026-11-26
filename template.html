@@ -219,7 +219,7 @@
   <ul>
     <li><b>即時</b>：打開網頁時，重算「現價」「最後交易日漲跌」、<b>今年</b>與<b>近期</b>報酬率。台股用證交所即時報價（延遲約數秒～15 秒），美股、英股用 Yahoo（Yahoo 本身延遲約 15～20 分鐘，另有 5 分鐘快取）。網頁開著時，台股盤中每分鐘、美股與英股開盤時每 5 分鐘自動更新。表格下方「現價與報酬率更新於 10:32（3 分鐘前）」是最後一次成功取得資料的時間，抓不到新資料時會繼續顯示上次成功的時間。收盤後（台股 13:30）取得收盤價就不再重抓，表格下方改為「收盤資料」，資料時間即收盤時間（例：台股 2026/10/30 13:30 收盤）。</li>
     <li><b>排程</b>：過去年度的報酬率不會再變，由 GitHub 排程每個平日執行兩次（台北約 15:17 台股收盤後、06:17 美股收盤後；GitHub 排程常會延遲數小時）。表格下方「排程更新於…」是排程實際執行完成的時間。</li>
-    <li>即時價格抓不到時（例如資料代理無法連線），整列沿用排程資料，表格下方會註明。加權指數用證交所即時指數；報酬指數證交所沒有即時值時，以加權指數的即時漲跌估算（現價前加「≈」，除息旺季當天會略低於實際，收盤後以排程的正式值為準）。</li>
+    <li>即時價格抓不到時（例如資料代理無法連線），整列沿用排程資料，表格下方會註明。台股 ETF 的淨值與折溢價用證交所「ETF 即時預估淨值」（盤中約每 15 秒更新，滑鼠移到淨值上可看時間與前一營業日淨值），折溢價＝現價 ÷ 淨值 − 1，正的是溢價（買貴了）；美股、英股沒有淨值資料。加權指數用證交所即時指數；報酬指數證交所沒有即時值時，以加權指數的即時漲跌估算（現價前加「≈」，除息旺季當天會略低於實際，收盤後以排程的正式值為準）。</li>
   </ul>
     </div>
   </details>
@@ -269,6 +269,9 @@ const cols = [
   // 成立年度：Yahoo 該檔最早交易日（firstTradeDate）的年份
   {k:'since', label:'成立<br>年度', num:true, get:r => r.since ? {sort:+r.since.slice(0, 4), text:r.since.slice(0, 4)} : {sort:null, text:'(空白)'}},
   {k:'price', label:'現價', num:true, get:r => r.error ? {sort:null, text:'(無資料)'} : {sort:r.price, text:fmtNum(r.price)}},
+  // 淨值：台股 ETF（證交所預估淨值，盤中即時）；折溢價＝現價 ÷ 淨值 − 1
+  {k:'nav', label:'淨值', num:true, get:r => r.nav ? {sort:r.nav.v, text:fmtNum(r.nav.v)} : {sort:null, text:'(空白)'}},
+  {k:'prem', label:'折溢價', num:true, get:r => r.nav && r.price ? {sort:(r.price / r.nav.v - 1) * 100, text:fmtPct((r.price / r.nav.v - 1) * 100)} : {sort:null, text:'(空白)'}},
   {k:'chg', label:'最後交易<br>日漲跌', num:true, get:r => r.chg == null ? {sort:null, text:'(無資料)'} : {sort:r.chg, text:fmtPct(r.chg)}},
   ...years.map(y => ({k:'y' + y, year:y, label:String(y), num:true, get:r => yearValue(r, y)})),
   // 近期模式的「今年」＝今年年度報酬率（年初至今），勾選才顯示
@@ -304,13 +307,14 @@ S.picked = S.picked || [];        // 勾選的代碼
 delete S.mode;                    // 「只看／隱藏勾選」已移除
 S.hiddenCols = S.hiddenCols || [];
 // 手機預設隱藏區域、類別、除息（可從「欄位」叫回）；只在使用者沒自訂過欄位時套用一次
-const MOBILE_HIDDEN = ['區', '類', '除息', 'divYtd', 'since', ...RISK.map(x => x[0])];
+const MOBILE_HIDDEN = ['區', '類', '除息', 'divYtd', 'since', 'nav', 'prem', ...RISK.map(x => x[0])];
 const defaultHidden = () => innerWidth < 600 ? [...MOBILE_HIDDEN] : [];
 if (!S.colsV) { if (!S.hiddenCols.length) S.hiddenCols = defaultHidden(); S.colsV = 4; }
 if (S.colsV === 2) { if (innerWidth < 600 && !S.hiddenCols.includes('since')) S.hiddenCols.push('since'); S.colsV = 3; }   // 新增的成立年度欄，手機預設也隱藏
 if (S.colsV === 3) { if (innerWidth < 600 && !S.hiddenCols.includes('divYtd')) S.hiddenCols.push('divYtd'); S.colsV = 4; }   // 新增的今年已除息欄，手機預設也隱藏
 if (S.colsV === 4) { if (innerWidth < 600) RISK.forEach(([k]) => S.hiddenCols.includes(k) || S.hiddenCols.push(k)); S.colsV = 5; }   // 新增的風險指標欄，手機預設也隱藏
 if (S.colsV === 5) { if (innerWidth < 600 && !S.hiddenCols.includes('lo52')) S.hiddenCols.push('lo52'); S.colsV = 6; }   // 新增的距52週低點欄，手機預設也隱藏
+if (S.colsV === 6) { if (innerWidth < 600) ['nav', 'prem'].forEach(k => S.hiddenCols.includes(k) || S.hiddenCols.push(k)); S.colsV = 7; }   // 新增的淨值、折溢價欄，手機預設也隱藏
 delete S.method;                    // 舊版欄位（當時預設再投入）
 S.calc = S.calc || 'simple';        // 'simple' 股息不再投入（預設）| 'tr' 股息再投入
 S.dec = S.dec === 2 ? 2 : 1;        // 小數位數，預設 1 位
@@ -445,6 +449,8 @@ function cell(c, r) {
     case 'since': return `<td class="c"${r.since ? ` title="${r.since}"` : ''}>${r.since ? v.text : ''}</td>`;
     case '名稱': return `<td class="stk" title="${esc(v.text)}"><span class="nm${nameFits(v.text) ? '' : ' sm'}">${esc(v.text)}</span>` +
       `${r.custom ? '<span class="tag">自訂</span>' : ''}</td>`;
+    case 'nav': return `<td class="r"${r.nav ? ` title="${r.nav.d ? `${r.nav.d.replace(/(\d{4})(\d\d)(\d\d)/, '$1/$2/$3')} ${r.nav.t} ` : ''}預估淨值${r.nav.prev ? `；前一營業日淨值 ${fmtNum(r.nav.prev)}` : ''}"` : ''}>${r.nav ? v.text : ''}</td>`;
+    case 'prem': return v.sort == null ? '<td></td>' : `<td class="r ${v.sort < 0 ? 'neg' : 'pos'}" title="正＝溢價（市價高於淨值），負＝折價">${v.text}</td>`;
     case 'price': return r._est ? `<td class="r" title="依加權指數即時漲跌估算">≈${v.text}</td>` : `<td class="r">${r.error ? '' : v.text}</td>`;
     case 'chg': return `<td class="r ${r.chg < 0 ? 'neg' : 'pos'}">${r.chg == null ? '' : v.text}</td>`;
   }
@@ -1100,6 +1106,28 @@ function idxQuote(r, iq) {
   r._est = true;
   return {...t, price, prev:t.prev ? price * t.prev / t.price : null};
 }
+// 台股 ETF 淨值：資料代理 /etfnav（證交所預估淨值）；舊版資料代理沒有這條路徑時沿用排程資料
+function parseNav(j) {   // 與 build.py parse_etf_nav 相同：逐層找有 a（代碼）與 f（預估淨值）的物件
+  const out = {}, num = x => { const v = parseFloat(String(x ?? '').replace(/,/g, '')); return v > 0 ? v : null; };
+  const walk = o => {
+    if (Array.isArray(o)) return o.forEach(walk);
+    if (!o || typeof o !== 'object') return;
+    if ('a' in o && 'f' in o && typeof o.a !== 'object') {
+      const nav = num(o.f), prev = num(o.h);
+      if (nav || prev) out[String(o.a).trim()] = {v:nav || prev, prev, d:o.i || '', t:o.j || ''};
+      return;
+    }
+    Object.values(o).forEach(walk);
+  };
+  walk(j);
+  return out;
+}
+async function navRefresh() {
+  const px = await WL.proxy(); if (!px) return;
+  const j = await fetch(`${px}/etfnav`).then(r => r.ok ? r.text() : '').then(t => t ? JSON.parse(t.replace(/^\uFEFF/, '')) : null).catch(() => null);
+  const navs = parseNav(j);
+  for (const r of [...BASE, ...Object.values(customRows)]) if (isTW(r) && navs[r.代碼]) r.nav = navs[r.代碼];
+}
 async function idxRefresh(rows) {
   if (!rows.length) return 0;
   const iq = await misQuotes(['t00', 'IR0001']);   // 舊版資料代理不認得 t00，整批失敗就沿用排程資料
@@ -1130,6 +1158,7 @@ async function liveRefresh() {
   Object.assign(LIVE, {state:'loading', ok:0, fail:0});
   refreshGenText();
   LIVE.ok += await idxRefresh(idx);
+  if (todo.some(isTW)) await navRefresh();
   const quotes = await misQuotes(todo.filter(isTW).map(r => r.代碼));
   let i = 0;
   const worker = async () => {   // 同時最多 8 個請求
@@ -1152,6 +1181,7 @@ async function twTick() {
   const idx = BASE.filter(r => isIdx(r) && !r.error && r._final !== today);
   if (!rows.length && !idx.length) return;
   let n = await idxRefresh(idx);
+  if (rows.length) await navRefresh();
   const quotes = rows.length ? await misQuotes(rows.map(r => r.代碼)) : {};
   for (const r of rows) {
     const q = quotes[r.代碼];

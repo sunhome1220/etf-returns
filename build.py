@@ -686,6 +686,10 @@ def build(rows, years, hist=None, old=None):
         if not r.get("名稱"):
             r["名稱"] = (re.fullmatch(r"\d{4,6}[A-Z]?", r["代碼"]) and tw_name(r["代碼"])) or r.get("_yname") or r["代碼"]
         finish_row(r, markets)
+    navs = etf_nav()   # 台股 ETF 淨值（盤中為預估淨值）；網頁盤中再經資料代理 /etfnav 更新
+    for r in results:
+        if r["代碼"] in navs and re.search(r"\.TWO?$", r.get("symbol") or ""):
+            r["nav"] = navs[r["代碼"]]
     series = {}
     for r in results:   # 主動型比較頁的每日資料另外輸出
         sr = r.pop("_series", None)
@@ -713,6 +717,50 @@ def write_html(payload, out=os.path.join(HERE, "returns.html")):
     html = html.replace("/*PROXY*/''", json.dumps(proxy.rstrip("/")))
     with open(out, "w", encoding="utf-8") as f:
         f.write(html)
+
+
+ETF_NAV_URL = "https://mis.twse.com.tw/stock/data/all_etf.txt"
+
+
+def parse_etf_nav(j):
+    """證交所「ETF 即時預估淨值」JSON → {代碼: {"v": 淨值, "prev": 前一營業日淨值, "d": 日期, "t": 時間}}。
+    依介接規格：a＝代碼、f＝預估淨值、h＝前一營業日淨值、i／j＝資料日期／時間；外層結構不固定，逐層找有 a 與 f 的物件。"""
+    out = {}
+
+    def num(x):
+        try:
+            v = float(str(x).replace(",", ""))
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def walk(o):
+        if isinstance(o, list):
+            for x in o:
+                walk(x)
+        elif isinstance(o, dict):
+            if "a" in o and "f" in o and not isinstance(o["a"], (list, dict)):
+                nav, prev = num(o.get("f")), num(o.get("h"))
+                if nav or prev:
+                    out[str(o["a"]).strip()] = {"v": nav or prev, "prev": prev, "d": o.get("i") or "", "t": o.get("j") or ""}
+                return
+            for x in o.values():
+                walk(x)
+    walk(j)
+    return out
+
+
+def etf_nav():
+    try:
+        with urllib.request.urlopen(urllib.request.Request(ETF_NAV_URL, headers=UA), timeout=30) as r:
+            j = json.loads(r.read().decode("utf-8-sig"))
+    except Exception as e:
+        print("ETF 預估淨值讀取失敗 %s" % e)
+        return {}
+    navs = parse_etf_nav(j)
+    sample = json.dumps(j, ensure_ascii=False)[:600]
+    print("ETF 預估淨值 %d 檔；原始資料開頭：%s" % (len(navs), sample))
+    return navs
 
 
 def tw_name(code):

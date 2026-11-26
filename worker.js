@@ -3,6 +3,7 @@
 //   GET /chart/<Yahoo代號>?<查詢參數>   → query1.finance.yahoo.com/v8/finance/chart/...
 //   GET /twname/<台股代碼>              → mis.twse.com.tw 中文名稱
 //   GET /mis/<代碼,代碼,...>            → mis.twse.com.tw 台股即時報價（上市＋上櫃，最多 40 檔，快取 15 秒；t00＝加權指數）
+//   GET /etfnav                         → mis.twse.com.tw 台股 ETF 即時預估淨值（全部，快取 15 秒）
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
@@ -19,7 +20,10 @@ export default {
     const sym = decodeURIComponent(raw || '');
 
     let target, ttl;
-    if (kind === 'mis') {
+    if (kind === 'etfnav') {
+      target = 'https://mis.twse.com.tw/stock/data/all_etf.txt';
+      ttl = 15;
+    } else if (kind === 'mis') {
       const codes = sym.split(',').filter(Boolean);
       if (!codes.length || codes.length > 40 || !codes.every(c => /^[0-9A-Z]{4,6}$/.test(c) || c === 't00')) return json({error: 'bad codes'}, 400);
       const ex = codes.flatMap(c => c === 't00' ? ['tse_t00.tw'] : [`tse_${c}.tw`, `otc_${c}.tw`]).join('|');
