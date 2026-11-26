@@ -202,11 +202,12 @@
     </div>
   </details>
   <details>
-    <summary>距高點、最大回撤、波動度怎麼算</summary>
+    <summary>距高低點、最大回撤、波動度怎麼算</summary>
     <div class="body">
   <ul>
-    <li>這幾欄排在報酬率後面（手機預設隱藏，可從「欄位」叫出），跟著上方的算法切換。期間的起點規則與近期報酬率相同，上市時間比期間短的顯示「上市未滿」。</li>
+    <li>這幾欄（風險指標）排在報酬率後面（手機預設隱藏，可從「欄位」叫出），跟著上方的算法切換。期間的起點規則與近期報酬率相同，上市時間比期間短的顯示「上市未滿」。</li>
     <li><b>距 52 週高點</b>：現在比近一年最高點低了多少。再投入＝最新還原價 ÷ 近一年最高還原價 − 1；不再投入＝從近一年任一天起算（最新價＋之後的除息合計）÷ 那天收盤價 − 1 的最低值。0% 表示就在高點。</li>
+    <li><b>距 52 週低點</b>：現在比近一年最低點高了多少（算法同上，取漲幅最大的值）。0% 表示就在低點；數字越大代表已經從低點反彈越多。</li>
     <li><b>最大回撤</b>：近一年／近三年內，從某個高點跌到之後某個低點的最大跌幅（算法同上），代表期間內最慘時會被套多深。</li>
     <li><b>年化波動度</b>：近一年每日報酬率（含息）的標準差 × √252，數字越大漲跌越劇烈。大盤型約 15～20%，槓桿型約兩倍。</li>
   </ul>
@@ -255,7 +256,7 @@ function yearValue(r, y) {
 }
 const PERIODS = [['w1', '近一週'], ['m1', '近一月'], ['m3', '近三月'], ['m6', '近半年'], ['y1', '近一年'],
   ['y3', '近三年<br>累積'], ['y3a', '近三年<br>年化', 3], ['y5', '近五年<br>累積'], ['y5a', '近五年<br>年化', 5]];
-const RISK = [['hi52', '距52週<br>高點'], ['mdd1', '近一年<br>最大回撤'], ['mdd3', '近三年<br>最大回撤'], ['vol', '年化<br>波動度']];
+const RISK = [['hi52', '距52週<br>高點'], ['lo52', '距52週<br>低點'], ['mdd1', '近一年<br>最大回撤'], ['mdd3', '近三年<br>最大回撤'], ['vol', '年化<br>波動度']];
 // 每個欄位：sort = 排序值，text = 顯示/篩選文字
 const cols = [
   {k:'區', label:'區域', get:r => ({sort:r.區, text:r.區})},
@@ -309,6 +310,7 @@ if (!S.colsV) { if (!S.hiddenCols.length) S.hiddenCols = defaultHidden(); S.cols
 if (S.colsV === 2) { if (innerWidth < 600 && !S.hiddenCols.includes('since')) S.hiddenCols.push('since'); S.colsV = 3; }   // 新增的成立年度欄，手機預設也隱藏
 if (S.colsV === 3) { if (innerWidth < 600 && !S.hiddenCols.includes('divYtd')) S.hiddenCols.push('divYtd'); S.colsV = 4; }   // 新增的今年已除息欄，手機預設也隱藏
 if (S.colsV === 4) { if (innerWidth < 600) RISK.forEach(([k]) => S.hiddenCols.includes(k) || S.hiddenCols.push(k)); S.colsV = 5; }   // 新增的風險指標欄，手機預設也隱藏
+if (S.colsV === 5) { if (innerWidth < 600 && !S.hiddenCols.includes('lo52')) S.hiddenCols.push('lo52'); S.colsV = 6; }   // 新增的距52週低點欄，手機預設也隱藏
 delete S.method;                    // 舊版欄位（當時預設再投入）
 S.calc = S.calc || 'simple';        // 'simple' 股息不再投入（預設）| 'tr' 股息再投入
 S.dec = S.dec === 2 ? 2 : 1;        // 小數位數，預設 1 位
@@ -808,7 +810,7 @@ function recentReturns(pts, divs, keys = Object.keys(PERIOD_DEF)) {
 }
 // 風險指標（與 build.py risk_stats 相同）：距 52 週高點、近一年／三年最大回撤、近一年年化波動度（%）
 // 再投入用還原價；不再投入從 i 到 j 的跌幅＝（j 收盤＋i 之後的除息合計）÷ i 收盤 − 1；波動度兩種相同
-const RISK_WIN = {hi52:12, mdd1:12, mdd3:36, vol:12};
+const RISK_WIN = {hi52:12, lo52:12, mdd1:12, mdd3:36, vol:12};
 function riskStats(pts, divs, keys = Object.keys(RISK_WIN)) {
   const end = pts[pts.length - 1], out = {}, cd = [];
   const ds = [...divs].sort((x, y) => x.day < y.day ? -1 : 1);
@@ -834,6 +836,10 @@ function riskStats(pts, divs, keys = Object.keys(RISK_WIN)) {
       let hi = 0, ms = 0;
       for (let i = si; i <= n; i++) { hi = Math.max(hi, pts[i].a); ms = Math.min(ms, ddS(i, n)); }
       out[key] = {v:(pts[n].a / hi - 1) * 100, s:ms * 100};
+    } else if (key === 'lo52') {   // 從近一年任一天到現在的漲幅取最大（＝離最低點多遠）
+      let lo = Infinity, ms = -Infinity;
+      for (let i = si; i <= n; i++) { lo = Math.min(lo, pts[i].a); ms = Math.max(ms, ddS(i, n)); }
+      out[key] = {v:(pts[n].a / lo - 1) * 100, s:ms * 100};
     } else {
       let peak = 0, mv = 0, ms = 0;
       for (let j = si; j <= n; j++) {
@@ -1043,7 +1049,7 @@ function computeLive(r, src, q) {
   if (!prev.length) ret.partial = true;   // 今年上市
   r.returns = {...r.returns, [y]:ret};
   r.recent = {...r.recent, ...recentReturns(pts, divs, long ? undefined : ['w1', 'm1', 'm3', 'm6', 'y1'])};
-  r.risk = {...r.risk, ...riskStats(pts, divs, long ? undefined : ['hi52', 'mdd1', 'vol'])};   // 一般只抓近兩年，近三年回撤沿用排程
+  r.risk = {...r.risk, ...riskStats(pts, divs, long ? undefined : ['hi52', 'lo52', 'mdd1', 'vol'])};   // 一般只抓近兩年，近三年回撤沿用排程
   r.divYtd = divYtd(divs, end.day);
   if (q) {
     r.price = q.price;

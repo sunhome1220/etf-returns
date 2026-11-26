@@ -230,12 +230,12 @@ def build_compare(series, ir):
             "dates": [d.isoformat() for d in dates], "funds": funds, "bench": bench}
 
 
-RISK_WINDOWS = [("hi52", 12), ("mdd1", 12), ("mdd3", 36), ("vol", 12)]
+RISK_WINDOWS = [("hi52", 12), ("lo52", 12), ("mdd1", 12), ("mdd3", 36), ("vol", 12)]
 
 
 def risk_stats(pts, divs, keys=None):
     """風險指標（起點規則與近期報酬率相同；上市時間比期間短為「上市未滿」）：
-    hi52＝距 52 週高點、mdd1／mdd3＝近一年／三年最大回撤、vol＝近一年年化波動度，單位 %。
+    hi52＝距 52 週高點、lo52＝距 52 週低點（現價比最低點高多少）、mdd1／mdd3＝近一年／三年最大回撤、vol＝近一年年化波動度，單位 %。
     再投入（v）用還原價；不再投入（s）從高點 i 到 j 的跌幅＝（j 收盤＋i 之後的除息合計）÷ i 收盤 − 1。
     波動度用每日還原價報酬（除息日也已含息），兩種算法相同。"""
     end_d = pts[-1][0]
@@ -272,6 +272,10 @@ def risk_stats(pts, divs, keys=None):
             n = len(pts) - 1
             out[key] = {"v": (pts[n][2] / max(pts[i][2] for i in idx) - 1) * 100,
                         "s": min(dd_s(i, n) for i in idx) * 100}
+        elif key == "lo52":   # 從近一年任一天到現在的漲幅取最大（＝離最低點多遠）
+            n = len(pts) - 1
+            out[key] = {"v": (pts[n][2] / min(pts[i][2] for i in idx) - 1) * 100,
+                        "s": max(dd_s(i, n) for i in idx) * 100}
         else:
             peak, mv = 0, 0
             for j in idx:
