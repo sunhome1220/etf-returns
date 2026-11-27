@@ -17,6 +17,7 @@
 | `compare.html` / `compare.js` | 「主動型比較」頁；讀 `build.py` 產生的 `compare.json`（類別「主動」與 0050 的每日收盤、還原價、除息，以及台灣報酬指數每日值）|
 | `watchlist.html` / `watchlist.js` | 「我的追蹤清單」；使用者自訂項目存在瀏覽器 |
 | `worker.js` | Cloudflare Worker（資料代理），網址在 `proxy.txt`。**使用者要自己到 Cloudflare 貼上部署**，改了要附完整程式碼請他部署 |
+| `tools/code_size.py` | 程式規模檢查：列出超過門檻的檔案與函式（重構建議的依據） |
 | `tests/` | 自動測試：`test_build.py`（Python 計算）、`web_test.js`（Playwright 網頁）、`fixtures/calc_cases.json`（Python 與網頁共用的計算案例）。PR 會由 `.github/workflows/test.yml` 自動執行 |
 | `.github/workflows/update.yml` | 「更新報酬率」：平日台北 15:17、06:17（常延遲數小時），可手動觸發 |
 
@@ -32,6 +33,11 @@
 - **改了 `template.html` 或任何 js／css（含 `app.js`）後執行 `python3 build.py --html-only`**：用現有資料重新產生 `returns.html`，並更新各頁引用的版本號（`xxx.js?v=雜湊`），瀏覽器才會抓新程式。
 - 兩種報酬率：`v`＝股息再投入（還原價），`s`＝股息不再投入（預設）。新增計算時兩種都要算，Python（`build.py`）與瀏覽器（`returns.js` 的 `analyzeJS`／`liveQuote`／`riskStats`／`recentReturns`）邏輯要一致；在 `tests/fixtures/calc_cases.json` 加案例（預期值用 Python 算），網頁測試會比對兩邊結果。
 - 手機寬度（< 600px）要能一打開就看到報酬率欄；新增欄位時考慮手機預設隱藏（`MOBILE_HIDDEN`）。
+
+## 程式規模與重構
+
+- 每次改完程式、commit 前執行 `python3 tools/code_size.py`。若有檔案超過 1000 行、函式超過 120 行，或同一段邏輯要改第二個地方，就在回覆最後**提出重構建議**，等使用者同意才做。評估與執行方式見 `.claude/skills/refactor/SKILL.md`。
+- 使用者說先不用的，不要每次都提；明顯變嚴重時再提。
 
 ## 流程
 
