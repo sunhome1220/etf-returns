@@ -478,6 +478,7 @@ async function exportImage() {
     const lbl = c.querySelector('.lbl');
     const lines = lbl ? lbl.innerHTML.split('<br>').map(s => s.replace(/<[^>]*>/g, '')) :
       [[...c.childNodes].filter(n => n.nodeType === 3 || !n.classList?.contains('tag')).map(n => n.textContent).join('')];
+    if (lbl && c.classList.contains('sorted')) lines[lines.length - 1] += S.sortDir < 0 ? ' ▼' : ' ▲';   // 排序方向（與畫面上的三角形相同）
     const nm = c.querySelector('.nm');
     const tc = lbl ? getComputedStyle(lbl) : nm ? getComputedStyle(nm) : cs;
     g.font = font(tc); g.fillStyle = tc.color;
