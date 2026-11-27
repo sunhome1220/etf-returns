@@ -14,7 +14,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="ETF報酬率">
 <title>各年度含息報酬率</title>
-<link rel="stylesheet" href="returns.css?v=99627f81">
+<link rel="stylesheet" href="returns.css?v=e320ae7c">
 </head>
 <body>
 <h1><a href="./" class="home" title="回首頁">投資工具</a> › 各年度含息報酬率
@@ -27,6 +27,7 @@
   <label class="span">年度範圍：近 <b id="spanN"></b> 年 <span id="spanR"></span>
     <input id="span" type="range" min="1" step="1"></label>
   <label class="since" title="依成立年度篩選（與表頭「成立年度」的 ≥／≤ 相同）">成立年度 <input id="sinceMin" type="number" inputmode="numeric" placeholder="不限">～<input id="sinceMax" type="number" inputmode="numeric" placeholder="不限"></label>
+  <span class="mktf" id="mktf" title="只看某幾種掛牌市場（全勾＝全部顯示；與「掛牌市場」欄的篩選相同）"></span>
   <select id="method" title="報酬率算法（說明見頁面最下方）"><option value="simple">股息不再投入</option><option value="tr">股息再投入</option></select>
   <select id="dec" title="數字的小數位數（全部欄位一起變動）"><option value="1">小數 1 位</option><option value="2">小數 2 位</option></select>
   <input id="q" type="search" placeholder="搜尋代碼 / 名稱">
@@ -125,7 +126,7 @@ const PROXY = "https://etf.sunhome1220.workers.dev";
 </script>
 <script src="market.js?v=5d00b433"></script>
 <script src="export.js?v=36f5678d"></script>
-<script src="returns.js?v=5c19833c"></script>
-<script src="app.js?v=5057ad52"></script>
+<script src="returns.js?v=a1d07fa7"></script>
+<script src="app.js?v=aa94a78a"></script>
 </body>
 </html>
