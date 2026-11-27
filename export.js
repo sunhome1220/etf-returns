@@ -74,6 +74,16 @@ const TableImage = (() => {
           while (t.length > 1 && g.measureText(t + '…').width > nm.clientWidth) t = t.slice(0, -1);
           lines[0] = t + '…';
         }
+        const runNodes = !lbl && !nm && !inner && kids.length > 1 ? [...c.childNodes].filter(n => n.textContent) : null;
+        if (runNodes) {   // 同一格有多種顏色（如多個類別）：逐段畫，置中或靠右時先量總寬
+          const runs = runNodes.map(n => { const st = getComputedStyle(n.nodeType === 1 ? n : c); return {t:n.textContent, f:font(st), col:st.color}; });
+          runs.forEach(rn => { g.font = rn.f; rn.w = g.measureText(rn.t).width; });
+          const tot = runs.reduce((s, rn) => s + rn.w, 0);
+          let rx = cs.textAlign === 'center' ? x + w / 2 - tot / 2 : cs.textAlign === 'right' ? x + w - parseFloat(cs.paddingRight) - tot : x + parseFloat(cs.paddingLeft);
+          g.textAlign = 'left';
+          for (const rn of runs) { g.font = rn.f; g.fillStyle = rn.col; g.fillText(rn.t, rx, y + h / 2); rx += rn.w; }
+          continue;
+        }
         const al = lbl || cs.textAlign === 'center' ? 'center' : cs.textAlign === 'right' ? 'right' : 'left';
         g.textAlign = al;
         const tx = al === 'center' ? x + w / 2 : al === 'right' ? x + w - parseFloat(cs.paddingRight) : x + parseFloat(cs.paddingLeft);

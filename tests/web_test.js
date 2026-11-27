@@ -58,6 +58,20 @@ const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (
     check(await shown() === expect.and, `類別篩選都要符合（主動且高息）＝ ${expect.and} 檔`);
     await page.evaluate(() => { delete S.filters.類; render(); });
 
+    // 類別顏色：各類別顏色互不相同（報酬指數、加權指數不加色）、槓桿為粗體
+    const tagStyle = await page.evaluate(() => {
+      const out = {};
+      for (const sp of document.querySelectorAll('#t tbody td span[class*="t-"]')) {
+        const m = /(?:^|\s)t-(\S+)/.exec(sp.className); if (!m) continue;
+        const st = getComputedStyle(sp); out[m[1]] = {color:st.color, weight:+st.fontWeight, plain:st.color === getComputedStyle(document.body).color};
+      }
+      return out;
+    });
+    const colored = Object.entries(tagStyle).filter(([k]) => !['報酬指數', '加權指數'].includes(k));
+    check(colored.length >= 11 && new Set(colored.map(([, v]) => v.color)).size === colored.length, `${colored.length} 個類別的顏色互不相同`);
+    check(tagStyle['槓桿'] && tagStyle['槓桿'].weight >= 600, '槓桿為粗體');
+    check(['報酬指數', '加權指數'].every(k => !tagStyle[k] || tagStyle[k].plain), '報酬指數、加權指數維持預設顏色');
+
     // 表頭全選：點一下全選、再點一下全部取消
     await page.click('#pickAll');
     check(await page.evaluate(n => S.picked.length === n && document.getElementById('pickAll').checked, nRows), '全選後全部勾選且打勾');
