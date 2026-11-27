@@ -207,7 +207,7 @@ function cell(c, r) {
   const v = c.get(r);
   switch (c.k) {
     case '區': return `<td class="c r-${r.區}">${r.區}</td>`;
-    case '類': { const ts = tagsOf(r); return `<td class="c t-${ts[0] || ''}${ts.join('、').length > 2 ? ' tsm' : ''}">${esc(ts[0] || '')}${ts.slice(1).map(t => `<span class="tg2">、${esc(t)}</span>`).join('')}</td>`; }   // 匯出圖片以主要類別的顏色畫整格
+    case '類': { const ts = tagsOf(r); return `<td class="c${ts.join('、').length > 2 ? ' tsm' : ''}">${ts.map((t, i) => `${i ? '<span class="tsep">、</span>' : ''}<span class="t-${t}${i ? ' tg2' : ''}">${esc(t)}</span>`).join('')}</td>`; }
     case '除息': return `<td class="c div">${r.除息 || ''}</td>`;
     case '代碼': return `<td>${esc(v.text)}</td>`;
     case 'divYtd': return `<td class="r div">${v.sort == null ? '' : v.text}</td>`;
