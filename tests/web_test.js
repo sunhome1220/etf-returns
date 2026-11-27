@@ -75,6 +75,8 @@ const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (
       want:D.funds.filter(f => String(f.類).split('、').includes('主動')).length}));
     check(cmp.active.length === cmp.want && cmp.want > 0, `主動型比較：${cmp.want} 檔（${cmp.info}）`);
     check(await page.$eval('#svg', s => s.querySelectorAll('path.ln').length > 0), '主動型比較：走勢圖有畫線');
+    const [dl2] = await Promise.all([page.waitForEvent('download', {timeout:15000}), page.click('#expBtn')]);
+    check(/^active-compare-\d{8}-.*\.png$/.test(dl2.suggestedFilename()), `主動型比較：匯出圖片（${dl2.suggestedFilename()}）`);
 
     // ---- 其他頁 ----
     for (const p of ['index.html', 'watchlist.html']) { await page.goto(BASE + p); await page.waitForTimeout(500); }

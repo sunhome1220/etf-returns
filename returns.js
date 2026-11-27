@@ -417,115 +417,22 @@ document.getElementById('fzUp').onclick = () => { S.fz++; applyFz(); render(); }
 document.getElementById('colBtn').onclick = e => { e.stopPropagation(); openCols(e.currentTarget); };
 // ---- 匯出圖片：依目前畫面（篩選、排序、欄位）把表格畫成 PNG，方便分享 ----
 async function exportImage() {
-  const table = document.getElementById('t'), wrapEl = table.parentElement, SC = 2, PAD = 16;
-  const keep = [wrapEl.scrollTop, wrapEl.scrollLeft];
-  wrapEl.scrollTop = 0; wrapEl.scrollLeft = 0;   // 表頭為 sticky，捲回頂端才能量到正確位置
-  // 表格上方的群組標題（各年度含息報酬率…）和圖片標題列重複，圖片上不畫，表格往上移
-  const GH = table.querySelector('thead tr.group').getBoundingClientRect().height;
-  const tr0 = table.getBoundingClientRect(), TB = tr0.height - table.tFoot.getBoundingClientRect().height - GH;
-  const skip = table.querySelector('thead tr.cols th').getBoundingClientRect().width;   // 不含勾選欄
-  const W = tr0.width - skip, ox = tr0.left + skip;
-  const font = cs => `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-  // 標題列：主標題固定；副標題寫目前的期間、算法、資料日期與篩選條件
-  const title = 'ETF 含息報酬率';
-  const fd = filterDesc();
-  // 排序欄：副標題註明，圖片上該欄底色略深
+  // 副標題：期間、算法、排序、資料日期與篩選條件；表格下方：目前算法說明
   const sc = sortCol();
   const sortTxt = `依「${sc.label.replace(/<br>/g, '')}」${sc.num ? (S.sortDir < 0 ? '由高到低' : '由低到高') : (S.sortDir < 0 ? 'Z→A' : 'A→Z')}排序`;
   const sub = [S.view === 'recent' ? '近期報酬率' : `各年度報酬率（${years[0] - S.span + 1}–${years[0]}）`,
-    methodName(), sortTxt, `資料日期 ${DATA.updated.slice(0, 10)}`, fd].filter(Boolean).join('・');
-  const icon = await new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = 'icon-192.png'; });
-  const foot = document.querySelector('#t tfoot td').textContent.replace(genText(), '').trim() + '　' + genText();
-  const src = /^https?:/.test(location.href) ? location.href.split('#')[0] : '';
-  const cv = document.createElement('canvas'), g = cv.getContext('2d');
-  // 頁尾文字依寬度換行
-  const MARK = 120;   // 右下角圖示＋「股市小樹苗」佔的寬度，下方文字不要壓到
-  const wrap = (text, f) => {
-    g.font = f; const out = []; let line = '';
-    for (const ch of text) { if (g.measureText(line + ch).width > W - MARK && line) { out.push(line); line = ch; } else line += ch; }
-    if (line) out.push(line); return out;
-  };
-  const footLines = wrap(foot, '8px ' + getComputedStyle(document.body).fontFamily);
-  // 目前算法說明，放在表格下方
+    methodName(), sortTxt, `資料日期 ${DATA.updated.slice(0, 10)}`, filterDesc()].filter(Boolean).join('・');
   const how = S.calc === 'simple'
     ? '算法：股息不再投入＝（該年最後收盤價＋當年除息合計−前一年最後收盤價）÷ 前一年最後收盤價；股息領了不再買回，以除息日歸年。'
     : '算法：股息再投入＝該年最後還原收盤價 ÷ 前一年最後還原收盤價 − 1；假設股息於除息日以當日價格買回（同報酬指數，實際入帳會晚數週）。';
-  const howLines = wrap(how + (S.view === 'recent'
-    ? '近期：以最新收盤日往回推 7 天、1／3／6／12／36／60 個月，起點取該日或之前最後一個交易日收盤；年化＝(1＋累積)^(1/年數)−1。'
-    : '今年為年初至今；斜體＝上市當年，從上市首日收盤起算。'), '12px ' + getComputedStyle(document.body).fontFamily);
-  const BAR = 62, top = BAR + 14, ICON = 30;
-  const textH = 10 + howLines.length * 17 + 4 + footLines.length * 11 + (src ? 11 : 0);
-  const H = top + TB + Math.max(textH, ICON + 14) + PAD;
-  const CW = W + PAD * 2, fam = getComputedStyle(document.body).fontFamily;
-  cv.width = CW * SC; cv.height = H * SC;
-  g.scale(SC, SC); g.fillStyle = '#fff'; g.fillRect(0, 0, CW, H);
-  g.textBaseline = 'middle';
-  g.fillStyle = '#2c7a3f'; g.fillRect(0, 0, CW, BAR);   // 標題列
-  g.fillStyle = '#fff'; g.font = 'bold 20px ' + fam; g.fillText(title, PAD, 23);
-  g.font = '12px ' + fam; g.fillStyle = 'rgba(255,255,255,.88)';
-  let st = sub;   // 副標題太長以 … 結尾
-  while (st.length > 1 && g.measureText(st).width > CW - PAD * 2) st = st.slice(0, -2) + '…';
-  g.fillText(st, PAD, 46);
-  const cells = [...table.querySelectorAll('thead tr.cols th, tbody td')].filter(c => c.cellIndex > 0);
-  for (const c of cells) {
-    const r = c.getBoundingClientRect(), cs = getComputedStyle(c);
-    let x = r.left - ox + PAD, w = r.width;
-    if (x < PAD) { w -= PAD - x; x = PAD; } if (w <= 0) continue;   // 群組列第一格跨到勾選欄
-    const y = r.top - tr0.top - GH + top, h = r.height;
-    if (cs.backgroundColor !== 'rgba(0, 0, 0, 0)') { g.fillStyle = cs.backgroundColor; g.fillRect(x, y, w, h); }
-    if (c.classList.contains('sorted')) { g.fillStyle = c.tagName === 'TH' ? 'rgba(44,122,63,.16)' : 'rgba(44,122,63,.07)'; g.fillRect(x, y, w, h); }
-    if (cs.borderTopStyle !== 'none') { g.strokeStyle = cs.borderTopColor; g.lineWidth = 1; g.strokeRect(x + .5, y + .5, w, h); }
-    const lbl = c.querySelector('.lbl');
-    const lines = lbl ? lbl.innerHTML.split('<br>').map(s => s.replace(/<[^>]*>/g, '')) :
-      [[...c.childNodes].filter(n => n.nodeType === 3 || !n.classList?.contains('tag')).map(n => n.textContent).join('')];
-    if (lbl && c.classList.contains('sorted')) lines[lines.length - 1] += S.sortDir < 0 ? ' ▼' : ' ▲';   // 排序方向（與畫面上的三角形相同）
-    const nm = c.querySelector('.nm');
-    const tc = lbl ? getComputedStyle(lbl) : nm ? getComputedStyle(nm) : cs;
-    g.font = font(tc); g.fillStyle = tc.color;
-    if (c.classList.contains('grp')) {   // 群組標題在畫面上會換行：圖片上依 <br> 與欄寬逐字換行
-      const max = w - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), out = [];
-      for (const part of c.innerHTML.split('<br>').map(s => s.replace(/<[^>]*>/g, ''))) {
-        let line = '';
-        for (const ch of part) { if (line && g.measureText(line + ch).width > max) { out.push(line); line = ch; } else line += ch; }
-        out.push(line);
-      }
-      lines.splice(0, lines.length, ...out);
-    }
-    if (nm && nm.scrollWidth > nm.clientWidth) {   // 名稱被截斷：圖片上同樣以 … 結尾
-      let t = lines[0];
-      while (t.length > 1 && g.measureText(t + '…').width > nm.clientWidth) t = t.slice(0, -1);
-      lines[0] = t + '…';
-    }
-    const al = lbl || cs.textAlign === 'center' ? 'center' : cs.textAlign === 'right' ? 'right' : 'left';
-    g.textAlign = al;
-    const tx = al === 'center' ? x + w / 2 : al === 'right' ? x + w - parseFloat(cs.paddingRight) : x + parseFloat(cs.paddingLeft);
-    const lh = parseFloat(tc.fontSize) * 1.3, y0 = y + (lbl ? h - lines.length * lh - 4 : h - lines.length * lh) / 2 + lh / 2 + (lbl ? 6 : 0);
-    lines.forEach((s, i) => g.fillText(s, tx, y0 + i * lh));
-  }
-  [wrapEl.scrollTop, wrapEl.scrollLeft] = keep;
-  g.textAlign = 'left'; g.font = '12px ' + getComputedStyle(document.body).fontFamily; g.fillStyle = '#444';
-  let fy = top + TB + 18;
-  howLines.forEach(s => { g.fillText(s, PAD, fy); fy += 17; });
-  fy += 4; g.font = '8px ' + getComputedStyle(document.body).fontFamily; g.fillStyle = '#888';
-  footLines.forEach(s => { g.fillText(s, PAD, fy); fy += 11; });
-  if (src) { g.fillStyle = '#2c7a3f'; g.fillText(src, PAD, fy); }
-  // 右下角：App 圖示與群組名稱，和左邊的說明文字並排（底部對齊），不另起一行
-  const iy = H - PAD - ICON, ix = CW - PAD - ICON;
-  if (icon) {
-    g.save(); g.beginPath(); g.roundRect ? g.roundRect(ix, iy, ICON, ICON, 7) : g.rect(ix, iy, ICON, ICON); g.clip();
-    g.drawImage(icon, ix, iy, ICON, ICON); g.restore();
-  }
-  g.textAlign = 'right'; g.fillStyle = '#666'; g.font = '11px ' + fam;
-  g.fillText('股市小樹苗', ix - 6, iy + ICON / 2);
-  const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
-  const name = `etf-returns-${DATA.updated.slice(0, 10).replace(/\//g, '')}${filterTag()}.png`;
-  const file = new File([blob], name, {type:'image/png'});
-  if (navigator.canShare && navigator.canShare({files:[file]}) && matchMedia('(pointer:coarse)').matches) {
-    try { await navigator.share({files:[file], title}); return; } catch (e) { if (e.name === 'AbortError') return; }
-  }
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  await TableImage.exportTable({
+    table:document.getElementById('t'), skipCols:1, sortDir:S.sortDir, title:'ETF 含息報酬率', sub,
+    note:how + (S.view === 'recent'
+      ? '近期：以最新收盤日往回推 7 天、1／3／6／12／36／60 個月，起點取該日或之前最後一個交易日收盤；年化＝(1＋累積)^(1/年數)−1。'
+      : '今年為年初至今；斜體＝上市當年，從上市首日收盤起算。'),
+    foot:document.querySelector('#t tfoot td').textContent.replace(genText(), '').trim() + '　' + genText(),
+    filename:`etf-returns-${DATA.updated.slice(0, 10).replace(/\//g, '')}${filterTag()}.png`,
+  });
 }
 document.getElementById('expBtn').onclick = () => exportImage().catch(e => alert('匯出失敗：' + e.message));
 // ---- 個人追蹤清單（watchlist.js，與「我的追蹤清單」頁同步）----

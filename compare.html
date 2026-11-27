@@ -26,6 +26,7 @@
   .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; font-size:13px; }
   .bar select, .bar input { font:inherit; padding:3px 6px; border:1px solid #bbb; border-radius:4px; background:#fff; }
   .bar label { display:flex; align-items:center; gap:4px; }
+  .bar button { font:inherit; padding:3px 10px; border:1px solid #bbb; border-radius:4px; background:#fafafa; cursor:pointer; }
   #info { color:var(--muted); font-size:12px; }
   .chart { position:relative; border:1px solid var(--bd); border-radius:6px; padding:8px 8px 4px; margin-bottom:6px; background:#fcfcfb; }
   .chart h2 { font-size:14px; margin:0 0 2px 4px; }
@@ -90,6 +91,7 @@
   <input id="from" type="date" style="display:none">
   <select id="method" title="報酬率算法"><option value="s">股息不再投入</option><option value="v">股息再投入</option></select>
   <label>基準<select id="bench"><option value="IR0001">台灣報酬指數</option><option value="0050">0050</option></select></label>
+  <button id="expBtn" title="依目前畫面匯出成圖片">匯出圖片</button>
   <span id="info"></span>
 </div>
 <div class="chart">
@@ -124,8 +126,9 @@
     </ul>
   </details>
 </section>
+<script src="export.js?v=736b10f4"></script>
 <script src="market.js?v=5d00b433"></script>
-<script src="compare.js?v=fd0877a3"></script>
-<script src="app.js?v=c4dce035"></script>
+<script src="compare.js?v=509909b9"></script>
+<script src="app.js?v=bd84b9bf"></script>
 </body>
 </html>

@@ -11,6 +11,7 @@
 | `template.html` | 報酬率頁的版面；`build.py` 把資料塞進 `/*DATA*/null`、代理網址塞進 `/*PROXY*/` 產生 `returns.html` |
 | `returns.js` / `returns.css` | 報酬率頁的程式與樣式（改這兩個檔就好，不用動 HTML） |
 | `market.js` | 報酬率頁與主動型比較頁共用：資料代理網址、證交所即時報價（`MK.mis`）、ETF 淨值（`MK.etfNav`）、日期推算（`MK.periodTarget`） |
+| `export.js` | 各頁共用的「匯出圖片」（`TableImage.exportTable`）：表格畫成 PNG，排序欄底色與 ▼／▲、說明、圖示 |
 | `returns.html` | 產生出來的頁面（版面＋資料），由排程或 `python3 build.py --html-only` 產生，不要手改 |
 | `app.js` | 各頁共用：`CHANGELOG`（更新內容通知）、PWA 安裝、service worker 註冊 |
 | `compare.html` / `compare.js` | 「主動型比較」頁；讀 `build.py` 產生的 `compare.json`（類別「主動」與 0050 的每日收盤、還原價、除息，以及台灣報酬指數每日值）|
@@ -27,6 +28,7 @@
   - 名稱可留空：台股會自動用證交所中文簡稱，其他用 Yahoo 名稱；確認後再把名稱寫回 CSV（「我的追蹤清單」頁直接讀 CSV）。
   - 「除息」「成立」欄有填就以填的為準（Yahoo 台股歷史只到 2000／2008 年，舊標的的成立年要手動填）。
   - 含逗號的值（如 `1,4,7,10`）要加引號；用 Python `csv` 模組改，不要手打。
+- **兩頁都有的功能寫成共用**（`market.js`、`export.js`），不要各寫一份。
 - **改了 `template.html` 或任何 js／css（含 `app.js`）後執行 `python3 build.py --html-only`**：用現有資料重新產生 `returns.html`，並更新各頁引用的版本號（`xxx.js?v=雜湊`），瀏覽器才會抓新程式。
 - 兩種報酬率：`v`＝股息再投入（還原價），`s`＝股息不再投入（預設）。新增計算時兩種都要算，Python（`build.py`）與瀏覽器（`returns.js` 的 `analyzeJS`／`liveQuote`／`riskStats`／`recentReturns`）邏輯要一致；在 `tests/fixtures/calc_cases.json` 加案例（預期值用 Python 算），網頁測試會比對兩邊結果。
 - 手機寬度（< 600px）要能一打開就看到報酬率欄；新增欄位時考慮手機預設隱藏（`MOBILE_HIDDEN`）。
