@@ -44,7 +44,8 @@ def prev_close(symbol):
 
 
 MARKETS = {"Asia/Taipei": ("台股", "台北"), "America/New_York": ("美股", "紐約"),
-           "Europe/London": ("英股", "倫敦")}
+           "Europe/London": ("英股", "倫敦"),
+           "UTC": ("加密貨幣", "UTC"), "Etc/UTC": ("加密貨幣", "UTC")}   # 比特幣等（Yahoo 的 XXX-USD），24 小時交易
 TPE = dt.timezone(dt.timedelta(hours=8))
 
 
@@ -275,7 +276,10 @@ def risk_stats(pts, divs, keys=None):
         if key == "vol":
             rs = [pts[i][2] / pts[i - 1][2] - 1 for i in idx if i > si]
             m = sum(rs) / len(rs)
-            sd = (sum((x - m) ** 2 for x in rs) / (len(rs) - 1)) ** .5 * 252 ** .5 * 100
+            # 年化：每年交易日數 252；每天都有價的（加密貨幣，每年約 365 筆）用 365
+            yrs = (pts[-1][0] - pts[si][0]).days / 365.25
+            per_year = 365 if len(rs) / yrs > 300 else 252
+            sd = (sum((x - m) ** 2 for x in rs) / (len(rs) - 1)) ** .5 * per_year ** .5 * 100
             out[key] = {"v": sd, "s": sd}
             continue
         dd_s = lambda i, j: (pts[j][1] + cd[j] - cd[i]) / pts[i][1] - 1
@@ -627,7 +631,7 @@ def analyze_twse(row, years, hist, key, cached, missing):
 DEFAULT_YEARS = 10
 CSV_PATH = os.path.join(HERE, "stocks.csv")
 CSV_FIELDS = ["區", "類", "代碼", "名稱", "除息", "Yahoo代號", "成立"]
-MARKET_ORDER = ["台股", "美股", "英股"]
+MARKET_ORDER = ["台股", "美股", "英股", "加密貨幣"]
 
 
 def get_years(n=DEFAULT_YEARS):
@@ -648,7 +652,8 @@ def save_rows(rows, path=CSV_PATH):
 
 
 def market_text(m):
-    txt = "%s %s %s" % (m["market"], fmt_ts(m["ts"], m["off"]), "收盤" if m["closed"] else "盤中")
+    state = "24 小時" if m["market"] == "加密貨幣" else "收盤" if m["closed"] else "盤中"   # 加密貨幣沒有收盤
+    txt = "%s %s %s" % (m["market"], fmt_ts(m["ts"], m["off"]), state)
     if m["off"] != 28800:
         txt += "（%s時間，台北 %s）" % (m["city"], fmt_ts(m["ts"], 28800))
     return txt

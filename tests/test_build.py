@@ -79,10 +79,35 @@ class Parsing(unittest.TestCase):
         self.assertIn('src="nope.js"', out)   # 不存在的檔案不動
 
 
+class Crypto(unittest.TestCase):
+    def test_market_name_and_text(self):
+        for tz in ("UTC", "Etc/UTC"):
+            self.assertEqual(build.MARKETS[tz][0], "加密貨幣")
+        self.assertIn("加密貨幣", build.MARKET_ORDER)
+        txt = build.market_text({"market": "加密貨幣", "city": "UTC", "ts": 1793000000, "closed": False, "off": 0})
+        self.assertIn("24 小時", txt)   # 沒有收盤，不寫盤中／收盤
+        self.assertNotIn("盤中", txt)
+        self.assertNotIn("收盤", txt)
+        self.assertIn("收盤", build.market_text({"market": "台股", "city": "台北", "ts": 1793000000, "closed": True, "off": 28800}))
+
+    def test_vol_uses_365_for_daily_series(self):
+        # 案例 D：每天都有價（含週末）→ 年化用 365；股票案例 C（只有交易日）仍用 252
+        pts, divs = load(CASES["D"])
+        end = pts[-1][0]
+        start_t = build.add_months(end, -12)
+        si = max(i for i, p in enumerate(pts) if p[0] <= start_t)
+        rs = [pts[i][2] / pts[i - 1][2] - 1 for i in range(si + 1, len(pts))]
+        mean = sum(rs) / len(rs)
+        sd = (sum((x - mean) ** 2 for x in rs) / (len(rs) - 1)) ** .5
+        self.assertAlmostEqual(build.risk_stats(pts, divs)["vol"]["v"], sd * 365 ** .5 * 100, places=9)
+        pts_c, divs_c = load(CASES["C"])
+        self.assertLess(build.risk_stats(pts_c, divs_c)["vol"]["v"], 30)   # 股票維持 √252（C 約 18.7%）
+
+
 class StocksCsv(unittest.TestCase):
     def test_categories(self):
         rows = build.load_rows()
-        known = {"主動", "市值", "高息", "主題", "槓桿", "反一", "金融", "動能", "中小",
+        known = {"主動", "市值", "高息", "主題", "槓桿", "反一", "金融", "動能", "中小", "加密貨幣",
                  "個股-科", "個股-穩", "報酬指數", "加權指數"}
         codes = [r["代碼"] for r in rows]
         self.assertEqual(len(codes), len(set(codes)), "代碼重複")
