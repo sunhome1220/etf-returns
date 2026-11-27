@@ -173,7 +173,7 @@ function renderTable(list, brs) {
     if (x == null || x === '') return 1; if (y == null || y === '') return -1;
     return (x < y ? -1 : x > y ? 1 : 0) * S.dir;
   });
-  $('t').tHead.innerHTML = '<tr>' + COLS.map(x => `<th class="${x.cls || ''}${x.mh ? ' mh' : ''}${S.sort === x.k ? ' on' : ''}" data-k="${x.k}">${x.label}` +
+  $('t').tHead.innerHTML = '<tr>' + COLS.map(x => `<th class="${x.cls || ''}${x.mh ? ' mh' : ''}${S.sort === x.k ? ' on sorted' : ''}" data-k="${x.k}"><span class="lbl">${x.label}</span>` +
     `<span class="s">${S.sort === x.k ? (S.dir < 0 ? '▼' : '▲') : '⇅'}</span></th>`).join('') + '</tr>';
   $('t').tBodies[0].innerHTML = [...brs, ...sorted].map(r => `<tr class="${r.bench ? 'bench' : ''}">${COLS.map(x => cell(x, r)).join('')}</tr>`).join('');
 }
@@ -331,6 +331,20 @@ $('legend').addEventListener('click', e => {
   const it = e.target.closest('[data-rm]'); if (!it || !it.dataset.rm) return;
   S.chart = S.chart.filter(x => x !== it.dataset.rm); render();
 });
+// 匯出圖片（export.js 與報酬率頁共用）：表格＋目前期間、算法、基準、排序
+$('expBtn').onclick = () => {
+  const n = dates.length - 1, s0 = startIdx(), c = COLS.find(x => x.k === S.sort) || COLS[5];
+  const sub = [s0 >= 0 ? `${dates[s0]} 收盤 → ${dates[n]}` : `各自上市首日 → ${dates[n]}`,
+    S.method === 'v' ? '股息再投入' : '股息不再投入', `基準 ${S.bench === 'IR0001' ? '台灣報酬指數' : '0050'}`,
+    `依「${c.label.replace(/<br>/g, '')}」${S.dir < 0 ? '由高到低' : '由低到高'}排序`].join('・');
+  TableImage.exportTable({
+    table:$('t'), sortDir:S.dir, title:'主動型 ETF 比較', sub,
+    note:'超額報酬＝期間報酬 − 基準同期；起點欄有 * 的是比起點晚上市，從上市首日起算（基準也從同一天起算）。' +
+      '報酬回撤比＝期間報酬 ÷ |最大回撤|；折溢價＝現價 ÷ 淨值 − 1；距 52 週高低點固定看近一年。',
+    foot:$('foot').textContent,
+    filename:`active-compare-${dates[n].replace(/-/g, '')}-${S.per === 'custom' ? (S.from || '').replace(/-/g, '') : S.per}.png`,
+  }).catch(e => alert('匯出失敗：' + e.message));
+};
 let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(render, 150); });
 
 (async () => {
