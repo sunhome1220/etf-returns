@@ -376,7 +376,7 @@ let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(ren
   D = await fetch('compare.json', {cache:'no-cache'}).then(r => r.ok ? r.json() : null).catch(() => null);
   if (!D) { $('info').textContent = '資料尚未產生，請稍後再試'; return; }
   dates = D.dates; funds = D.funds; funds.forEach(prep);
-  active = funds.filter(f => f.類 === '主動');
+  active = funds.filter(f => String(f.類 || '').split('、').includes('主動'));   // 類別可多個，有「主動」就列入
   F0050 = funds.find(f => f.代碼 === '0050') || null;
   IR = D.bench && D.bench.IR0001 || null;
   if (S.chart) S.chart = S.chart.filter(k => active.some(f => f.代碼 === k));
