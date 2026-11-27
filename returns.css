@@ -76,6 +76,7 @@ th.yr, td.yr { width:5em; min-width:5em; }   /* 各年度欄寬一致 */
 td.tsm { font-size:.86em; }   /* 類別文字超過兩個字（多類別或較長的名稱）縮小一級；匯出圖片依計算後的字型畫，同步縮小 */
 .pop .mode { gap:10px; } .pop .mode label { padding:0; flex:none; }
 .r-美國 { color:#1f4fbf; font-weight:600; } .r-陸港 { color:#c0392b; font-weight:600; }
+.m-美股 { color:#1f4fbf; font-weight:600; } .m-英股 { color:#c0392b; font-weight:600; }   /* 掛牌市場：台股維持一般顏色 */
 .div { color:#1f4fbf; }
 .pop { position:absolute; background:#fff; border:1px solid #aaa; box-shadow:0 4px 12px rgba(0,0,0,.15); padding:8px; z-index:20; width:220px; font-size:13px; }
 .pop .row { display:flex; gap:6px; margin-bottom:6px; }
