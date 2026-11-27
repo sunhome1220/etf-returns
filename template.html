@@ -84,8 +84,10 @@
   th.yr, td.yr { width:5em; min-width:5em; }   /* 各年度欄寬一致 */
   .partial { font-style:italic; }
   .pos { color:var(--up); } .neg { color:var(--down); } .lowpos { color:var(--low); }
-  .t-個股-科,.t-主動,.t-個股-穩 { color:#8e24aa; font-weight:600; } .t-槓桿,.t-指數 { color:#e0218a; } .t-反一 { color:#1565c0; font-weight:600; }
-  .t-高息 { color:#2e8b3d; } .t-市值 { color:#c0392b; } .t-動能 { color:#6a1b9a; }
+  .t-個股-科,.t-主動,.t-個股-穩 { color:#8e24aa; font-weight:600; } .t-槓桿 { color:#e0218a; } .t-反一 { color:#1565c0; font-weight:600; }
+  .t-高息 { color:#2e8b3d; } .t-市值 { color:#c0392b; } .t-動能 { color:#6a1b9a; } .t-中小 { color:#00838f; }
+  .tg2 { color:#777; font-size:.9em; }   /* 第二、三個類別 */
+  .pop .mode { gap:10px; } .pop .mode label { padding:0; flex:none; }
   .r-美國 { color:#1f4fbf; font-weight:600; } .r-陸港 { color:#c0392b; font-weight:600; }
   .div { color:#1f4fbf; }
   .pop { position:absolute; background:#fff; border:1px solid #aaa; box-shadow:0 4px 12px rgba(0,0,0,.15); padding:8px; z-index:20; width:220px; font-size:13px; }
@@ -246,6 +248,8 @@ const years = DATA.years;
 const fmtNum = v => v >= 10000 ? v.toLocaleString('en-US', {minimumFractionDigits:S.dec, maximumFractionDigits:S.dec}) : v.toFixed(S.dec);
 const fmtPct = v => v.toFixed(S.dec) + '%';
 
+// 類別可以有多個（最多 3 個，以「、」分隔），第一個是主要類別（顏色、排序依它）
+const tagsOf = r => String(r.類 || '').split(/[、,，/／]/).map(s => s.trim()).filter(Boolean);
 const pickV = x => S.calc === 'simple' && x.s != null ? x.s : x.v;   // 指數等沒有 s 的沿用 v
 // 成立前的年度：前一年寫「2025年成立」、更早寫「尚未成立」（舊格式「25年5月成立」「-未成立」一併轉換）
 const noteText = n => n === '-未成立' ? '尚未成立' : n.replace(/^(\d{2})年\d+月成立$/, '20$1年成立');
@@ -262,7 +266,7 @@ const RISK = [['hi52', '距52週<br>高點'], ['lo52', '距52週<br>低點'], ['
 // 每個欄位：sort = 排序值，text = 顯示/篩選文字
 const cols = [
   {k:'區', label:'區域', get:r => ({sort:r.區, text:r.區})},
-  {k:'類', label:'類別', get:r => ({sort:r.類, text:r.類})},
+  {k:'類', label:'類別', tags:true, get:r => ({sort:r.類, text:tagsOf(r).join('、')})},
   {k:'除息', label:'除息', get:r => ({sort:r.除息 || '', text:r.除息 || '(空白)'})},
   // 今年已除息：今年除息日已過的每股股息合計（元），與 build.py 相同
   {k:'divYtd', label:'今年<br>已除息', num:true, get:r => r.divYtd == null ? {sort:null, text:'(空白)'} : {sort:r.divYtd, text:String(+r.divYtd.toFixed(3))}},
@@ -304,7 +308,8 @@ const colByKey = Object.fromEntries(cols.map(c => [c.k, c]));
 const S = load() || {};
 S.sortKey = S.sortKey || 'y' + years[0];
 S.sortDir = S.sortDir || -1;
-S.filters = S.filters || {};      // k -> {vals:[允許的文字] | null, min, max}
+S.filters = S.filters || {};      // k -> {vals:[允許的文字] | null, min, max}；類別另有 and（true＝都要符合）
+if (S.filters.類 && S.filters.類.vals) S.filters.類.vals = [...new Set(S.filters.類.vals.map(t => t === '指數' ? '市值' : t))];   // 「指數」已併入「市值」
 S.picked = S.picked || [];        // 勾選的代碼
 delete S.mode;                    // 「只看／隱藏勾選」已移除
 S.hiddenCols = S.hiddenCols || [];
@@ -360,7 +365,7 @@ function filterDesc() {
     const c = colByKey[k];
     if (!c || !inView(c)) continue;
     const label = c.label.replace(/<br>/g, '');
-    if (f.vals) parts.push(`${label} ${f.vals.length > 5 ? f.vals.slice(0, 5).join('、') + ` 等 ${f.vals.length} 項` : f.vals.join('、')}`);
+    if (f.vals) parts.push(`${label} ${f.vals.length > 5 ? f.vals.slice(0, 5).join('、') + ` 等 ${f.vals.length} 項` : f.vals.join('、')}${c.tags && f.and && f.vals.length > 1 ? '（都要符合）' : ''}`);
     if (f.min != null) parts.push(`${label} ≥ ${f.min}`);
     if (f.max != null) parts.push(`${label} ≤ ${f.max}`);
   }
@@ -375,7 +380,7 @@ function filterTag() {
     const c = colByKey[k];
     if (!c || !inView(c)) continue;
     const label = c.label.replace(/<br>/g, '');
-    if (f.vals) parts.push(`${label}-${f.vals.length > 3 ? f.vals.slice(0, 3).join('+') + `等${f.vals.length}項` : f.vals.join('+')}`);
+    if (f.vals) parts.push(`${label}-${f.vals.length > 3 ? f.vals.slice(0, 3).join(c.tags && f.and ? '且' : '+') + `等${f.vals.length}項` : f.vals.join(c.tags && f.and ? '且' : '+')}`);
     if (f.min != null) parts.push(`${label}≥${f.min}`);
     if (f.max != null) parts.push(`${label}≤${f.max}`);
   }
@@ -384,7 +389,10 @@ function filterTag() {
 }
 function passFilter(r, c, f) {
   const v = c.get(r);
-  if (f.vals && !f.vals.includes(v.text)) return false;
+  if (f.vals && c.tags) {   // 類別：預設任一符合（聯集），and＝勾選的都要有（交集）
+    const ts = tagsOf(r);
+    if (f.and ? !f.vals.every(t => ts.includes(t)) : !ts.some(t => f.vals.includes(t))) return false;
+  } else if (f.vals && !f.vals.includes(v.text)) return false;
   if (f.min != null && (v.sort == null || v.sort < f.min)) return false;
   if (f.max != null && (v.sort == null || v.sort > f.max)) return false;
   return true;
@@ -441,7 +449,7 @@ function cell(c, r) {
   const v = c.get(r);
   switch (c.k) {
     case '區': return `<td class="c r-${r.區}">${r.區}</td>`;
-    case '類': return `<td class="c t-${r.類}">${r.類}</td>`;
+    case '類': { const ts = tagsOf(r); return `<td class="c t-${ts[0] || ''}">${esc(ts[0] || '')}${ts.slice(1).map(t => `<span class="tg2">、${esc(t)}</span>`).join('')}</td>`; }   // 匯出圖片以主要類別的顏色畫整格
     case '除息': return `<td class="c div">${r.除息 || ''}</td>`;
     case '代碼': return `<td>${esc(v.text)}</td>`;
     case 'divYtd': return `<td class="r div">${v.sort == null ? '' : v.text}</td>`;
@@ -476,7 +484,7 @@ function body() {
   const pa = document.getElementById('pickAll'), nPk = rows.filter(r => pk.has(r.代碼)).length;
   if (pa) { pa.checked = rows.length > 0 && nPk === rows.length; pa.indeterminate = nPk > 0 && nPk < rows.length; }
   document.querySelector('#t tbody').innerHTML = rows.map(r =>
-    `<tr class="${r.類}${r.custom ? ' custom' : ''}${pk.has(r.代碼) ? ' picked' : ''}"><td class="c"><input type="checkbox" data-pick="${r.代碼}" ${pk.has(r.代碼) ? 'checked' : ''}>` +
+    `<tr class="${tagsOf(r)[0] || ''}${r.custom ? ' custom' : ''}${pk.has(r.代碼) ? ' picked' : ''}"><td class="c"><input type="checkbox" data-pick="${r.代碼}" ${pk.has(r.代碼) ? 'checked' : ''}>` +
     `<button class="rm" data-rm="${r.代碼}" title="從我的清單移除">✕</button></td>` +
     vc.map(c => cell(c, r)).join('') + `</tr>`).join('');
   const si = vc.indexOf(sc) + 1;   // 排序欄（第 0 欄是勾選）
@@ -521,7 +529,8 @@ function openFilter(k, btn) {
   // 選項來自「其他欄位篩選後」的資料，與 Excel 相同
   const base = filtered(k);
   const seen = new Map();
-  base.slice().sort(cmp(c, 1)).forEach(r => { const v = c.get(r); if (!seen.has(v.text)) seen.set(v.text, v); });
+  const opts = r => c.tags ? tagsOf(r) : [c.get(r).text];   // 類別的選項是單一類別
+  base.slice().sort(cmp(c, 1)).forEach(r => opts(r).forEach(t => { if (!seen.has(t)) seen.set(t, true); }));
   const f = S.filters[k] || {};
   const allowed = f.vals ? new Set(f.vals) : null;
   const pop = popAt(btn, `
@@ -532,6 +541,7 @@ function openFilter(k, btn) {
       return `<div class="row rng"><label>≥<input type="number" step="any" id="fmin" placeholder="${hint}" value="${f.min ?? ''}"></label>` +
         `<label>≤<input type="number" step="any" id="fmax" placeholder="${hint}" value="${f.max ?? ''}"></label></div>`;
     })() : ''}
+    ${c.tags ? `<div class="row mode"><label><input type="radio" name="fmode" value="or" ${f.and ? '' : 'checked'}>任一符合</label><label><input type="radio" name="fmode" value="and" ${f.and ? 'checked' : ''}>都要符合</label></div>` : ''}
     <div class="row"><input type="search" id="fq" placeholder="搜尋選項"></div>
     <div class="row"><button data-a="all">全選</button><button data-a="none">全不選</button></div>
     <div class="list">${[...seen.keys()].map(t =>
@@ -552,10 +562,11 @@ function openFilter(k, btn) {
     if (a === 'ok') {
       const nf = {};
       // 只更新清單中出現的項目；被其他篩選隱藏的項目維持原狀
-      const every = new Set(DATA.rows.map(r => c.get(r).text));
+      const every = new Set(DATA.rows.flatMap(opts));
       const next = new Set(allowed || every);
       boxes().forEach(b => b.checked ? next.add(b.value) : next.delete(b.value));
       if (next.size < every.size) nf.vals = [...next];
+      if (nf.vals && c.tags && pop.querySelector('input[name=fmode]:checked').value === 'and') nf.and = true;
       if (c.num) {
         const mn = pop.querySelector('#fmin').value, mx = pop.querySelector('#fmax').value;
         if (mn !== '') nf.min = +mn;

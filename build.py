@@ -171,7 +171,7 @@ COMPARE_BENCH = ["0050"]
 
 
 def is_compare(row):
-    return row.get("類") == "主動" or row["代碼"] in COMPARE_BENCH
+    return "主動" in (row.get("類") or "").split("、") or row["代碼"] in COMPARE_BENCH
 
 
 def index_daily(code, start, hist):
