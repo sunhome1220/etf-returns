@@ -480,7 +480,7 @@ function marketTime(meta) {  // 與 build.py market_time 相同：已收盤以�
   return {market, city, ts, closed:!open, off};
 }
 function marketTextOf(m) {
-  let t = `${m.market} ${fmtTs(m.ts, m.off)} ${m.closed ? '收盤' : '盤中'}`;
+  let t = `${m.market} ${fmtTs(m.ts, m.off)} ${m.market === '加密貨幣' ? '24 小時' : m.closed ? '收盤' : '盤中'}`;   // 加密貨幣沒有收盤
   if (m.off !== 28800) t += `（${m.city}時間，台北 ${fmtTs(m.ts, 28800)}）`;
   return t;
 }
@@ -524,7 +524,9 @@ function riskStats(pts, divs, keys = Object.keys(RISK_WIN)) {
       const rs = [];
       for (let i = si + 1; i <= n; i++) rs.push(pts[i].a / pts[i - 1].a - 1);
       const m = rs.reduce((s, x) => s + x, 0) / rs.length;
-      const sd = Math.sqrt(rs.reduce((s, x) => s + (x - m) ** 2, 0) / (rs.length - 1) * 252) * 100;
+      // 年化：每年交易日數 252；每天都有價的（加密貨幣）用 365（與 build.py 相同）
+      const perYear = rs.length / ((Date.parse(pts[n].day) - Date.parse(pts[si].day)) / 864e5 / 365.25) > 300 ? 365 : 252;
+      const sd = Math.sqrt(rs.reduce((s, x) => s + (x - m) ** 2, 0) / (rs.length - 1) * perYear) * 100;
       out[key] = {v:sd, s:sd};
     } else if (key === 'hi52') {
       let hi = 0, ms = 0;

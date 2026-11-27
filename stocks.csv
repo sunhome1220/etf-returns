@@ -59,6 +59,7 @@
 台灣,個股-穩、高息,2412,中華電,,,2000
 美國,市值,00646,元大S&P 500,,,
 全球,市值,VT,Vanguard Total World Stock ETF,,,
+全球,市值,VXUS,,,,
 全球,市值,VWRA,Vanguard全世界(英股),,VWRA.L,
 美國,主題,009801,中信美國創新科技,,,
 台灣,個股-科,2317,鴻海,,,1991
@@ -68,10 +69,12 @@
 陸港,槓桿,00637L,元大滬深300正2,,,
 陸港,市值,00752,中信中國50,,,
 美國,市值,VOO,Vanguard S&P 500 ETF,,,
+美國,市值,VTI,,,,
 美國,市值,QQQ,"Invesco QQQ Trust, Series 1",,,
 美國,槓桿,SSO,ProShares Ultra S&P500,,,
 美國,槓桿,QLD,ProShares Ultra QQQ,,,
 美國,槓桿,TQQQ,ProShares UltraPro QQQ,,,
+全球,加密貨幣,BTC,比特幣,,BTC-USD,
 全球,主動、主題,00983A,主動中信ARK創新,,,
 台灣,主動,00982A,主動群益台灣強棒,,,
 台灣,主動、高息,00984A,主動安聯台灣高息,,,

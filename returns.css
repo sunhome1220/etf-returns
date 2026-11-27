@@ -72,7 +72,7 @@ th.yr, td.yr { width:5em; min-width:5em; }   /* 各年度欄寬一致 */
 /* 類別顏色：每個類別各一色（多類別時每個類別各用自己的顏色）；粗體＝主動、槓桿、反一、個股。報酬指數、加權指數不加色 */
 .t-主動 { color:#8e24aa; font-weight:600; } .t-市值 { color:#c62828; } .t-高息 { color:#2e7d32; } .t-主題 { color:#d35400; }
 .t-金融 { color:#8d6e00; } .t-槓桿 { color:#e0218a; font-weight:600; } .t-反一 { color:#1e40af; font-weight:600; }
-.t-動能 { color:#5e35b1; } .t-中小 { color:#007c91; } .t-個股-科 { color:#6d4c41; font-weight:600; } .t-個股-穩 { color:#37474f; font-weight:600; }
+.t-加密貨幣 { color:#910853; } .t-動能 { color:#5e35b1; } .t-中小 { color:#007c91; } .t-個股-科 { color:#6d4c41; font-weight:600; } .t-個股-穩 { color:#37474f; font-weight:600; }
 .tg2 { font-size:.9em; } .tsep { color:#999; font-size:.9em; }   /* 第二、三個類別小一點；頓號灰色 */
 td.tsm { font-size:.86em; }   /* 類別文字超過兩個字（多類別或較長的名稱）縮小一級；匯出圖片依計算後的字型畫，同步縮小 */
 .pop .mode { gap:10px; } .pop .mode label { padding:0; flex:none; }

@@ -118,8 +118,9 @@ const WL = (() => {
     const hit = j && (j.msgArray || []).find(x => x.n);
     return hit ? hit.n : null;
   }
-  const MK = {'Asia/Taipei':['台股','台北'], 'America/New_York':['美股','紐約'], 'Europe/London':['英股','倫敦']};
-  const REGION_BY_MARKET = {台股:'台灣', 美股:'美國', 英股:'全球'};
+  const MK = {'Asia/Taipei':['台股','台北'], 'America/New_York':['美股','紐約'], 'Europe/London':['英股','倫敦'],
+    'UTC':['加密貨幣','UTC'], 'Etc/UTC':['加密貨幣','UTC']};
+  const REGION_BY_MARKET = {台股:'台灣', 美股:'美國', 英股:'全球', 加密貨幣:'全球'};
   // '0050' → ['0050', '']；'vwra.l' → ['VWRA', 'VWRA.L']
   function parseCode(raw) {
     raw = String(raw || '').trim().toUpperCase();

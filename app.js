@@ -1,6 +1,9 @@
 // 各頁共用：手機 App（加入主畫面）、更新內容通知。
 // 新增功能時，在 CHANGELOG 最前面加一筆（id 遞增）；使用者下次打開會看到上次之後的更新內容。
 const CHANGELOG = [
+  {id:68, date:'2026-11-28', items:[
+    '預設清單加入 VTI、VXUS，以及比特幣 BTC（新類別「加密貨幣」，24 小時交易、沒有收盤）',
+  ]},
   {id:67, date:'2026-11-28', items:[
     '預設清單加入 VT（Vanguard Total World Stock，全球市值）',
   ]},
