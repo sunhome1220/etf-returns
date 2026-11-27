@@ -57,7 +57,7 @@ function vol(f, s, n) {
 }
 // 距 52 週高點／低點（與主頁相同，不隨上方期間變動）：近一年起點前已上市才算，否則「上市未滿」
 function hilo(f, n) {
-  const si = idxOnOrBefore(monthsBack(dates[n], 12));
+  const si = idxOnOrBefore(MK.periodTarget(dates[n], 12, 0));
   if (si < 0 || (f ? si < f.o : !IR || si < IR.o)) return {note:'上市未滿'};
   // 各天到現在的漲跌：最小值＝距高點（從高點跌了多少），最大值＝距低點（從低點漲了多少）
   let hi = Infinity, lo = -Infinity;
@@ -69,15 +69,10 @@ function hilo(f, n) {
 }
 // 起點：目標日或之前最後一個交易日（與主頁近期報酬率相同）
 function idxOnOrBefore(t) { let lo = 0, hi = dates.length - 1, r = -1; while (lo <= hi) { const mid = (lo + hi) >> 1; if (dates[mid] <= t) { r = mid; lo = mid + 1; } else hi = mid - 1; } return r; }
-function monthsBack(day, n) {
-  const [y, m, d] = day.split('-').map(Number), t = new Date(Date.UTC(y, m - 1 - n, 1));
-  t.setUTCDate(Math.min(d, new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate()));
-  return t.toISOString().slice(0, 10);
-}
 function startIdx() {   // 共同起點；-1＝各自上市以來
   const end = dates[dates.length - 1];
   const t = S.per === 'ytd' ? `${+end.slice(0, 4) - 1}-12-31` : S.per === 'custom' ? (S.from || end)
-    : S.per === 'list' ? null : monthsBack(end, {m1:1, m3:3, m6:6, y1:12}[S.per]);
+    : S.per === 'list' ? null : MK.periodTarget(end, {m1:1, m3:3, m6:6, y1:12}[S.per], 0);
   if (t == null) return -1;
   return Math.max(0, idxOnOrBefore(t));
 }
@@ -86,21 +81,6 @@ function startIdx() {   // 共同起點；-1＝各自上市以來
 function navOf(f) {
   const price = f.c[f.c.length - 1], nav = f.nav;
   return {nav, price, PREM:nav && nav.v && price ? price / nav.v - 1 : null};
-}
-function parseNav(j) {   // 與 build.py parse_etf_nav 相同：逐層找有 a（代碼）與 f（預估淨值）的物件
-  const out = {}, num = x => { const v = parseFloat(String(x ?? '').replace(/,/g, '')); return v > 0 ? v : null; };
-  const walk = o => {
-    if (Array.isArray(o)) return o.forEach(walk);
-    if (!o || typeof o !== 'object') return;
-    if ('a' in o && 'f' in o && typeof o.a !== 'object') {
-      const nav = num(o.f), prev = num(o.h);
-      if (nav || prev) out[String(o.a).trim()] = {v:nav || prev, prev, d:o.i || '', t:o.j || ''};
-      return;
-    }
-    Object.values(o).forEach(walk);
-  };
-  walk(j);
-  return out;
 }
 
 // ---- 計算每一列 ----
@@ -294,29 +274,10 @@ function render() {
 }
 
 // ---- 即時報價（證交所，經資料代理 /mis/）----
-async function proxy() {
-  const t = await fetch('proxy.txt', {cache:'no-cache'}).then(r => r.ok ? r.text() : '').catch(() => '');
-  return t.trim().replace(/\/$/, '');
-}
-async function mis(px, codes) {
-  const out = {};
-  for (let i = 0; i < codes.length; i += 30) {
-    const j = await fetch(`${px}/mis/${codes.slice(i, i + 30).join(',')}`).then(r => r.ok ? r.json() : null).catch(() => null);
-    for (const q of (j && j.msgArray) || []) {
-      const num = v => { const x = parseFloat(v); return x > 0 ? x : null; };
-      const price = num(q.z) ?? num((q.b || '').split('_')[0]);
-      if (!price || !q.d) continue;
-      out[q.c] = {price, prev:num(q.y), day:`${q.d.slice(0, 4)}-${q.d.slice(4, 6)}-${q.d.slice(6, 8)}`, closed:(q.t || '') >= '13:30'};
-    }
-  }
-  return out;
-}
 async function live() {
-  const px = await proxy();
-  if (!px || !D) return;
-  const [q, tq, nj] = await Promise.all([mis(px, funds.map(f => f.代碼)), mis(px, ['t00']),
-    fetch(`${px}/etfnav`).then(r => r.ok ? r.text() : '').then(x => x ? JSON.parse(x.replace(/^\uFEFF/, '')) : null).catch(() => null)]);
-  const t = tq.t00, navs = parseNav(nj);
+  if (!D || !await MK.proxy()) return;
+  const [q, tq, navs] = await Promise.all([MK.mis(funds.map(f => f.代碼)), MK.mis(['t00']), MK.etfNav()]);
+  const t = tq.t00;
   for (const f of funds) if (navs[f.代碼]) f.nav = navs[f.代碼];
   const qs = Object.values(q);
   if (!qs.length) { if (Object.keys(navs).length) render(); return; }

@@ -6,6 +6,7 @@
        python build.py --full      (忽略 history.json，全部重算)
 """
 import argparse
+import hashlib
 import calendar
 import csv
 import datetime as dt
@@ -68,6 +69,11 @@ def market_time(meta):
         if ts > rmt + 3600 * 12:  # 異常（例如半日市），退回最後成交時間
             ts = rmt
     return {"market": name, "city": city, "ts": ts, "closed": not is_open, "off": off}
+
+
+def utc_date(ts):
+    """timestamp（已加上當地時差）→ 日期；取代即將淘汰的 datetime.utcfromtimestamp"""
+    return dt.datetime.fromtimestamp(ts, dt.timezone.utc).date()
 
 
 def fmt_ts(ts, off):
@@ -325,11 +331,11 @@ def analyze(row, years, hist=None):
     pts = []  # (date, close, adjclose)
     for t, c, a in zip(data["timestamp"], closes, adj):
         if c is not None and a is not None:
-            pts.append((dt.datetime.utcfromtimestamp(t + off).date(), c, a))
+            pts.append((utc_date(t + off), c, a))
     if not pts:
         out["error"] = "查無資料"
         return out
-    divs = sorted((dt.datetime.utcfromtimestamp(ev["date"] + off).date(), ev["amount"])
+    divs = sorted((utc_date(ev["date"] + off), ev["amount"])
                   for ev in (data.get("events") or {}).get("dividends", {}).values())
 
     # Yahoo 有時漏掉分割調整：台股單日漲跌幅有限制，單日變動 >40% 視為分割/合併
@@ -349,18 +355,18 @@ def analyze(row, years, hist=None):
     meta = data["meta"]
     rmt, last_px = meta.get("regularMarketTime"), meta.get("regularMarketPrice")
     if rmt and last_px:
-        d_now = dt.datetime.utcfromtimestamp(rmt + off).date()
+        d_now = utc_date(rmt + off)
         d_last, c_last, a_last = pts[-1]
         if d_now > d_last:
             div = sum(ev["amount"] for ev in (data.get("events") or {}).get("dividends", {}).values()
-                      if d_last < dt.datetime.utcfromtimestamp(ev["date"] + off).date() <= d_now)
+                      if d_last < utc_date(ev["date"] + off) <= d_now)
             pts.append((d_now, last_px, a_last * (last_px + div) / c_last))
 
     # Yahoo 偶爾缺台股新上市標的的歷史日K（最早交易日比資料起點早一週以上，且不是查詢範圍造成的）：
     # 改用證交所每日收盤價與除息紀錄
     ftd = meta.get("firstTradeDate")
     if ftd and symbol.endswith(".TW"):
-        fd = dt.datetime.utcfromtimestamp(ftd + off).date()
+        fd = utc_date(ftd + off)
         if fd > dt.date.fromtimestamp(p1) + dt.timedelta(days=7) and (pts[0][0] - fd).days > 7:
             try:
                 tp, td = twse_series(row["代碼"], fd)
@@ -379,7 +385,7 @@ def analyze(row, years, hist=None):
     if row.get("成立"):
         out["since"] = row["成立"]
     elif data["meta"].get("firstTradeDate"):
-        out["since"] = dt.datetime.utcfromtimestamp(data["meta"]["firstTradeDate"] + off).date().isoformat()
+        out["since"] = utc_date(data["meta"]["firstTradeDate"] + off).isoformat()
     out["price"] = data["meta"].get("regularMarketPrice", pts[-1][1])
     prev = prev_close(symbol)
     out["chg"] = (out["price"] / prev - 1) * 100 if prev else None
@@ -705,6 +711,21 @@ def build(rows, years, hist=None, old=None):
     }
 
 
+STATIC_PAGES = ["index.html", "watchlist.html", "compare.html"]   # 不經 template 產生、但也要加版本號的頁面
+
+
+def stamp_versions(html):
+    """把本站 .js／.css 的引用加上內容雜湊（xxx.js?v=1a2b3c4d），檔案改了瀏覽器就會抓新的，不會用到快取的舊程式。"""
+    def ver(m):
+        p = os.path.join(HERE, m.group(2))
+        if not os.path.exists(p):
+            return m.group(0)
+        with open(p, "rb") as f:
+            h = hashlib.sha1(f.read()).hexdigest()[:8]
+        return '%s="%s?v=%s"' % (m.group(1), m.group(2), h)
+    return re.sub(r'(src|href)="([\w.-]+\.(?:js|css))(?:\?v=\w+)?"', ver, html)
+
+
 def write_html(payload, out=os.path.join(HERE, "returns.html")):
     with open(os.path.join(HERE, "template.html"), encoding="utf-8") as f:
         html = f.read()
@@ -716,7 +737,16 @@ def write_html(payload, out=os.path.join(HERE, "returns.html")):
         proxy = open(ptxt, encoding="utf-8").read().strip()
     html = html.replace("/*PROXY*/''", json.dumps(proxy.rstrip("/")))
     with open(out, "w", encoding="utf-8") as f:
-        f.write(html)
+        f.write(stamp_versions(html))
+    for name in STATIC_PAGES:   # 其他頁面的版本號一併更新
+        p = os.path.join(HERE, name)
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as f:
+                old = f.read()
+            new = stamp_versions(old)
+            if new != old:
+                with open(p, "w", encoding="utf-8") as f:
+                    f.write(new)
 
 
 ETF_NAV_URL = "https://mis.twse.com.tw/stock/data/all_etf.txt"
@@ -783,7 +813,15 @@ def main():
     ap.add_argument("--csv", default=CSV_PATH)
     ap.add_argument("--full", action="store_true", help="忽略 history.json，全部重算")
     ap.add_argument("--out", default=os.path.join(HERE, "returns.html"))
+    ap.add_argument("--html-only", action="store_true", help="不抓資料，只用現有 returns.html 的資料重新產生頁面（改了 template.html 或 js／css 後執行）")
     args = ap.parse_args()
+
+    if args.html_only:
+        with open(args.out, encoding="utf-8") as f:
+            m = re.search(r"const DATA = (\{.*?\});\n", f.read(), re.S)
+        write_html(json.loads(m.group(1)), args.out)
+        print("已重新產生", args.out)
+        return
 
     hist = {} if args.full else load_hist()
     payload = build(load_rows(args.csv), get_years(args.years), hist, load_old_rows(args.out))

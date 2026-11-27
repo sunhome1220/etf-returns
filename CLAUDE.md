@@ -8,12 +8,15 @@
 |---|---|
 | `stocks.csv` | 預設清單。欄位：區,類,代碼,名稱,除息,Yahoo代號,成立 |
 | `build.py` | 排程執行：抓 Yahoo（缺歷史時改用證交所）算報酬率，輸出 `returns.html`，已結束年度記在 `history.json` |
-| `template.html` | 報酬率頁的原始碼；`build.py` 把資料塞進 `/*DATA*/null` 產生 `returns.html` |
-| `returns.html` | 產生出來的頁面（含資料）。**改 `template.html` 時要同步改 `returns.html`**，否則要等下次排程才生效 |
+| `template.html` | 報酬率頁的版面；`build.py` 把資料塞進 `/*DATA*/null`、代理網址塞進 `/*PROXY*/` 產生 `returns.html` |
+| `returns.js` / `returns.css` | 報酬率頁的程式與樣式（改這兩個檔就好，不用動 HTML） |
+| `market.js` | 報酬率頁與主動型比較頁共用：資料代理網址、證交所即時報價（`MK.mis`）、ETF 淨值（`MK.etfNav`）、日期推算（`MK.periodTarget`） |
+| `returns.html` | 產生出來的頁面（版面＋資料），由排程或 `python3 build.py --html-only` 產生，不要手改 |
 | `app.js` | 各頁共用：`CHANGELOG`（更新內容通知）、PWA 安裝、service worker 註冊 |
 | `compare.html` / `compare.js` | 「主動型比較」頁；讀 `build.py` 產生的 `compare.json`（類別「主動」與 0050 的每日收盤、還原價、除息，以及台灣報酬指數每日值）|
 | `watchlist.html` / `watchlist.js` | 「我的追蹤清單」；使用者自訂項目存在瀏覽器 |
 | `worker.js` | Cloudflare Worker（資料代理），網址在 `proxy.txt`。**使用者要自己到 Cloudflare 貼上部署**，改了要附完整程式碼請他部署 |
+| `tests/` | 自動測試：`test_build.py`（Python 計算）、`web_test.js`（Playwright 網頁）、`fixtures/calc_cases.json`（Python 與網頁共用的計算案例）。PR 會由 `.github/workflows/test.yml` 自動執行 |
 | `.github/workflows/update.yml` | 「更新報酬率」：平日台北 15:17、06:17（常延遲數小時），可手動觸發 |
 
 ## 每次改動的規則
@@ -24,7 +27,8 @@
   - 名稱可留空：台股會自動用證交所中文簡稱，其他用 Yahoo 名稱；確認後再把名稱寫回 CSV（「我的追蹤清單」頁直接讀 CSV）。
   - 「除息」「成立」欄有填就以填的為準（Yahoo 台股歷史只到 2000／2008 年，舊標的的成立年要手動填）。
   - 含逗號的值（如 `1,4,7,10`）要加引號；用 Python `csv` 模組改，不要手打。
-- 兩種報酬率：`v`＝股息再投入（還原價），`s`＝股息不再投入（預設）。新增計算時兩種都要算，Python（`build.py`）與瀏覽器（`template.html` 的 `analyzeJS`／`liveQuote`）邏輯要一致。
+- **改了 `template.html` 或任何 js／css（含 `app.js`）後執行 `python3 build.py --html-only`**：用現有資料重新產生 `returns.html`，並更新各頁引用的版本號（`xxx.js?v=雜湊`），瀏覽器才會抓新程式。
+- 兩種報酬率：`v`＝股息再投入（還原價），`s`＝股息不再投入（預設）。新增計算時兩種都要算，Python（`build.py`）與瀏覽器（`returns.js` 的 `analyzeJS`／`liveQuote`／`riskStats`／`recentReturns`）邏輯要一致；在 `tests/fixtures/calc_cases.json` 加案例（預期值用 Python 算），網頁測試會比對兩邊結果。
 - 手機寬度（< 600px）要能一打開就看到報酬率欄；新增欄位時考慮手機預設隱藏（`MOBILE_HIDDEN`）。
 
 ## 流程
@@ -34,6 +38,10 @@
 3. 開 PR，說明改了什麼、怎麼驗證。**核對（測試、分支上的真實資料）沒問題就直接合併**，合併後回報結果；有需要使用者決定的事項（分類不確定、規格有疑問）、核對發現問題、或需要使用者部署 Worker 時，才先問再合併。
 4. 合併時若 `returns.html` 和 main 的排程更新衝突：保留分支版本，合併後對 main 再觸發一次「更新報酬率」。
 5. 需要時合併後對 main 觸發「更新報酬率」，並回報結果（例：新標的的名稱、除息、今年報酬率）。
+
+## 測試
+
+- 本機：`python3 -m unittest discover -s tests -v` 與 `node tests/web_test.js`（自己起 8799 埠伺服器，資料代理請求一律模擬失敗）。開 PR 前兩個都要過；PR 上 GitHub Actions「測試」也會跑。
 
 ## 測試環境限制
 

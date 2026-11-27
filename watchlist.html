@@ -110,7 +110,7 @@
 </main>
 <datalist id="cats"></datalist>
 
-<script src="watchlist.js"></script>
+<script src="watchlist.js?v=969c12af"></script>
 <script>
 const REGIONS = ['台灣', '美國', '陸港', '日本', '印度', '全球'];
 const COLS = [
@@ -236,6 +236,6 @@ $('ar').innerHTML += REGIONS.map(r => `<option>${r}</option>`).join('');
 WL.loadBase().then(b => { BASE = b; render(); })
   .catch(e => { $('tb').innerHTML = `<tr><td colspan="6" class="empty">${esc(e.message)}</td></tr>`; });
 </script>
-<script src="app.js"></script>
+<script src="app.js?v=d72b6d7b"></script>
 </body>
 </html>
