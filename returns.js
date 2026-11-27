@@ -24,6 +24,8 @@ const RISK = [['hi52', '距52週<br>高點'], ['lo52', '距52週<br>低點'], ['
 // 每個欄位：sort = 排序值，text = 顯示/篩選文字
 const cols = [
   {k:'區', label:'區域', get:r => ({sort:r.區, text:r.區})},
+  // 掛牌市場（台股／美股／英股）：交易所所在的市場，和「區域」（標的投資的地區）不同，如 00646 區域美國、在台股掛牌
+  {k:'mkt', label:'掛牌<br>市場', get:r => ({sort:r.mkt || '', text:r.mkt || '(空白)'})},
   {k:'類', label:'類別', tags:true, get:r => ({sort:r.類, text:tagsOf(r).join('、')})},
   {k:'除息', label:'除息', get:r => ({sort:r.除息 || '', text:r.除息 || '(空白)'})},
   // 今年已除息：今年除息日已過的每股股息合計（元），與 build.py 相同
@@ -72,7 +74,7 @@ S.picked = S.picked || [];        // 勾選的代碼
 delete S.mode;                    // 「只看／隱藏勾選」已移除
 S.hiddenCols = S.hiddenCols || [];
 // 手機預設隱藏區域、類別、除息（可從「欄位」叫回）；只在使用者沒自訂過欄位時套用一次
-const MOBILE_HIDDEN = ['區', '類', '除息', 'divYtd', 'since', 'nav', 'prem', ...RISK.map(x => x[0])];
+const MOBILE_HIDDEN = ['區', 'mkt', '類', '除息', 'divYtd', 'since', 'nav', 'prem', ...RISK.map(x => x[0])];
 const defaultHidden = () => innerWidth < 600 ? [...MOBILE_HIDDEN] : [];
 if (!S.colsV) { if (!S.hiddenCols.length) S.hiddenCols = defaultHidden(); S.colsV = 4; }
 if (S.colsV === 2) { if (innerWidth < 600 && !S.hiddenCols.includes('since')) S.hiddenCols.push('since'); S.colsV = 3; }   // 新增的成立年度欄，手機預設也隱藏
@@ -80,6 +82,7 @@ if (S.colsV === 3) { if (innerWidth < 600 && !S.hiddenCols.includes('divYtd')) S
 if (S.colsV === 4) { if (innerWidth < 600) RISK.forEach(([k]) => S.hiddenCols.includes(k) || S.hiddenCols.push(k)); S.colsV = 5; }   // 新增的風險指標欄，手機預設也隱藏
 if (S.colsV === 5) { if (innerWidth < 600 && !S.hiddenCols.includes('lo52')) S.hiddenCols.push('lo52'); S.colsV = 6; }   // 新增的距52週低點欄，手機預設也隱藏
 if (S.colsV === 6) { if (innerWidth < 600) ['nav', 'prem'].forEach(k => S.hiddenCols.includes(k) || S.hiddenCols.push(k)); S.colsV = 7; }   // 新增的淨值、折溢價欄，手機預設也隱藏
+if (S.colsV === 7) { if (innerWidth < 600 && !S.hiddenCols.includes('mkt')) S.hiddenCols.push('mkt'); S.colsV = 8; }   // 新增的掛牌市場欄，手機預設也隱藏
 delete S.method;                    // 舊版欄位（當時預設再投入）
 S.calc = S.calc || 'simple';        // 'simple' 股息不再投入（預設）| 'tr' 股息再投入
 S.dec = S.dec === 2 ? 2 : 1;        // 小數位數，預設 1 位
@@ -207,6 +210,7 @@ function cell(c, r) {
   const v = c.get(r);
   switch (c.k) {
     case '區': return `<td class="c r-${r.區}">${r.區}</td>`;
+    case 'mkt': return `<td class="c">${r.mkt ? `<span class="m-${r.mkt}">${esc(r.mkt)}</span>` : ''}</td>`;
     case '類': { const ts = tagsOf(r); return `<td class="c${ts.join('、').length > 2 ? ' tsm' : ''}">${ts.map((t, i) => `${i ? '<span class="tsep">、</span>' : ''}<span class="t-${t}${i ? ' tg2' : ''}">${esc(t)}</span>`).join('')}</td>`; }
     case '除息': return `<td class="c div">${r.除息 || ''}</td>`;
     case '代碼': return `<td>${esc(v.text)}</td>`;
