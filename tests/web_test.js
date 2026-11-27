@@ -58,19 +58,28 @@ const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (
     check(await shown() === expect.and, `類別篩選都要符合（主動且高息）＝ ${expect.and} 檔`);
     await page.evaluate(() => { delete S.filters.類; render(); });
 
-    // 掛牌市場欄：在區域右邊；篩選某幾種市場時檔數正確
+    // 掛牌市場：預設不顯示欄位，改用上方查詢條件勾選；欄位叫出來後與欄名篩選同步
+    const heads = () => page.$$eval('#t thead tr.cols th', a => a.map(t => t.textContent.replace(/[⇅▼▲▾]/g, '').trim()));
     const mk = await page.evaluate(() => {
-      const heads = [...document.querySelectorAll('#t thead tr.cols th')].map(t => t.textContent.replace(/[⇅▼▲▾]/g, '').trim());
       const n = m => DATA.rows.filter(r => m.includes(r.mkt)).length;
-      return {i:heads.indexOf('區域'), j:heads.indexOf('掛牌市場'), us:n(['美股']), tw:n(['台股']), uk:n(['英股']), total:DATA.rows.length};
+      return {us:n(['美股']), tw:n(['台股']), uk:n(['英股']), total:DATA.rows.length, boxes:[...document.querySelectorAll('#mktf input')].map(b => b.value)};
     });
-    check(mk.i >= 0 && mk.j === mk.i + 1, '掛牌市場欄在區域右邊');
-    for (const [name, vals, want] of [['美股', ['美股'], mk.us], ['台股', ['台股'], mk.tw], ['美股＋英股', ['美股', '英股'], mk.us + mk.uk]]) {
-      await page.evaluate(v => { S.filters.mkt = {vals:v}; render(); }, vals);
-      check(await shown() === want, `掛牌市場篩選「${name}」＝ ${want} 檔`);
-    }
-    await page.evaluate(() => { delete S.filters.mkt; render(); });
-    check(await shown() === mk.total && mk.tw + mk.us + mk.uk === mk.total, `未篩選時顯示全部 ${mk.total} 檔（台股 ${mk.tw}、美股 ${mk.us}、英股 ${mk.uk}）`);
+    check(!(await heads()).includes('掛牌市場'), '掛牌市場欄預設不顯示');
+    check(mk.boxes.join() === '台股,美股,英股', `查詢條件列出市場：${mk.boxes.join('、')}`);
+    await page.uncheck('#mktf input[value="台股"]');
+    check(await shown() === mk.us + mk.uk, `取消勾選台股＝只剩美股＋英股 ${mk.us + mk.uk} 檔（欄位隱藏時篩選仍有效）`);
+    await page.uncheck('#mktf input[value="英股"]');
+    check(await shown() === mk.us, `只勾美股＝${mk.us} 檔`);
+    await page.evaluate(() => { S.hiddenCols = S.hiddenCols.filter(k => k !== 'mkt'); render(); });   // 叫出欄位
+    const hs = await heads();
+    check(hs.indexOf('掛牌市場') === hs.indexOf('區域') + 1, '從「欄位」叫出後，掛牌市場欄在區域右邊');
+    await page.click('#t thead button[data-f="mkt"]'); await page.waitForSelector('.pop .list');
+    const popState = await page.$$eval('.pop .list input', a => Object.fromEntries(a.map(b => [b.value, b.checked])));
+    check(popState['美股'] === true && popState['台股'] === false && popState['英股'] === false, '欄名的篩選視窗與查詢條件同步');
+    await page.evaluate(() => closePop());
+    await page.check('#mktf input[value="台股"]'); await page.check('#mktf input[value="英股"]');
+    check(await shown() === mk.total && await page.evaluate(() => !S.filters.mkt), `全部勾選＝不篩選，顯示全部 ${mk.total} 檔（台股 ${mk.tw}、美股 ${mk.us}、英股 ${mk.uk}）`);
+    await page.evaluate(() => { S.hiddenCols.push('mkt'); render(); });   // 還原預設
 
     // 類別顏色：各類別顏色互不相同（報酬指數、加權指數不加色）、槓桿為粗體
     const tagStyle = await page.evaluate(() => {

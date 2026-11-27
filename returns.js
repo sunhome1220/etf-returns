@@ -75,7 +75,7 @@ delete S.mode;                    // 「只看／隱藏勾選」已移除
 S.hiddenCols = S.hiddenCols || [];
 // 手機預設隱藏區域、類別、除息（可從「欄位」叫回）；只在使用者沒自訂過欄位時套用一次
 const MOBILE_HIDDEN = ['區', 'mkt', '類', '除息', 'divYtd', 'since', 'nav', 'prem', ...RISK.map(x => x[0])];
-const defaultHidden = () => innerWidth < 600 ? [...MOBILE_HIDDEN] : [];
+const defaultHidden = () => innerWidth < 600 ? [...MOBILE_HIDDEN] : ['mkt'];   // 掛牌市場欄電腦也預設不顯示（改用上方查詢條件）
 if (!S.colsV) { if (!S.hiddenCols.length) S.hiddenCols = defaultHidden(); S.colsV = 4; }
 if (S.colsV === 2) { if (innerWidth < 600 && !S.hiddenCols.includes('since')) S.hiddenCols.push('since'); S.colsV = 3; }   // 新增的成立年度欄，手機預設也隱藏
 if (S.colsV === 3) { if (innerWidth < 600 && !S.hiddenCols.includes('divYtd')) S.hiddenCols.push('divYtd'); S.colsV = 4; }   // 新增的今年已除息欄，手機預設也隱藏
@@ -83,6 +83,7 @@ if (S.colsV === 4) { if (innerWidth < 600) RISK.forEach(([k]) => S.hiddenCols.in
 if (S.colsV === 5) { if (innerWidth < 600 && !S.hiddenCols.includes('lo52')) S.hiddenCols.push('lo52'); S.colsV = 6; }   // 新增的距52週低點欄，手機預設也隱藏
 if (S.colsV === 6) { if (innerWidth < 600) ['nav', 'prem'].forEach(k => S.hiddenCols.includes(k) || S.hiddenCols.push(k)); S.colsV = 7; }   // 新增的淨值、折溢價欄，手機預設也隱藏
 if (S.colsV === 7) { if (innerWidth < 600 && !S.hiddenCols.includes('mkt')) S.hiddenCols.push('mkt'); S.colsV = 8; }   // 新增的掛牌市場欄，手機預設也隱藏
+if (S.colsV === 8) { if (!S.hiddenCols.includes('mkt')) S.hiddenCols.push('mkt'); S.colsV = 9; }   // 掛牌市場欄改為所有人預設不顯示（可用上方查詢條件篩選）
 delete S.method;                    // 舊版欄位（當時預設再投入）
 S.calc = S.calc || 'simple';        // 'simple' 股息不再投入（預設）| 'tr' 股息再投入
 S.dec = S.dec === 2 ? 2 : 1;        // 小數位數，預設 1 位
@@ -164,6 +165,17 @@ function filtered(exceptKey) {
     Object.entries(S.filters).every(([k, f]) => k === exceptKey || !colByKey[k] || !inView(colByKey[k]) || passFilter(r, colByKey[k], f)) &&
     (!q || (r.代碼 + r.名稱).toLowerCase().includes(q)));
 }
+// 查詢條件的掛牌市場：勾選＝顯示，全勾＝不篩選。和欄名的篩選視窗共用 S.filters.mkt（欄位隱藏時篩選仍有效）
+function syncMkt() {
+  const order = DATA.marketOrder || [], box = document.getElementById('mktf');
+  const present = [...new Set(DATA.rows.map(r => r.mkt).filter(Boolean))].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
+  if (box.dataset.key !== present.join('|')) {   // 出現的市場有變才重畫
+    box.dataset.key = present.join('|');
+    box.innerHTML = '掛牌市場 ' + present.map(m => `<label><input type="checkbox" value="${esc(m)}">${esc(m)}</label>`).join('');
+  }
+  const vals = S.filters.mkt && S.filters.mkt.vals;
+  box.querySelectorAll('input').forEach(b => { b.checked = !vals || vals.includes(b.value); });
+}
 function cmp(c, dir) {
   return (a, b) => {
     const x = c.get(a).sort, y = c.get(b).sort;
@@ -241,6 +253,7 @@ function body() {
     const el = document.getElementById(id);
     if (document.activeElement !== el) el.value = sf[k] ?? '';
   }
+  syncMkt();
   const pk = picked(), vc = visCols();
   // 表頭勾選框：依目前畫面上（篩選後）的列——全部勾選＝打勾，部分勾選＝「−」
   const pa = document.getElementById('pickAll'), nPk = rows.filter(r => pk.has(r.代碼)).length;
@@ -920,6 +933,11 @@ for (const [id, k] of [['sinceMin', 'min'], ['sinceMax', 'max']]) document.getEl
   const v = e.target.value.trim(), f = {...(S.filters.since || {})};
   if (v === '' || isNaN(+v)) delete f[k]; else f[k] = +v;
   if (Object.keys(f).length) S.filters.since = f; else delete S.filters.since;
+  render();
+});
+document.getElementById('mktf').addEventListener('change', () => {
+  const boxes = [...document.querySelectorAll('#mktf input')], on = boxes.filter(b => b.checked).map(b => b.value);
+  if (on.length === boxes.length) delete S.filters.mkt; else S.filters.mkt = {vals:on};
   render();
 });
 loadCustom();

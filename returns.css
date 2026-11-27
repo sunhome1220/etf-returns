@@ -15,8 +15,9 @@ h1 .sub { font-size:14px; margin-left:16px; white-space:nowrap; }
 .bar button.on { background:#2c7a3f; color:#fff; border-color:#2c7a3f; }
 #info { color:#666; }
 .bar select, .bar input { font:inherit; }
-.span, .since { display:flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--bd); border-radius:4px; background:#fafafa; white-space:nowrap; }
+.span, .since, .mktf { display:flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--bd); border-radius:4px; background:#fafafa; white-space:nowrap; }
 .since input { width:4.2em; padding:1px 4px; border:1px solid var(--bd); border-radius:3px; }
+.mktf label { display:flex; align-items:center; gap:2px; cursor:pointer; }
 .span #spanR { color:#888; }
 .span input { width:160px; accent-color:#2c7a3f; }
 .wrap { overflow:auto; max-height:calc(100vh - 150px); }
@@ -118,7 +119,7 @@ tfoot td > div { width:0; min-width:100%; }   /* 不讓頁尾文字撐寬欄位 
   .rm { display:none; }   /* 手機省寬度；移除請到「我的追蹤清單」 */
   .bar { gap:6px; font-size:12px; }   /* 查詢選項：字小一點、年度範圍不換行 */
   .bar button { padding:2px 8px; }
-  .span, .since, .multi { padding:2px 6px; gap:4px; }
+  .span, .since, .multi, .mktf { padding:2px 6px; gap:4px; }
   .span input { width:90px; }
   .bar input[type=search] { width:120px; }
   th, td { padding:2px 3px; }
